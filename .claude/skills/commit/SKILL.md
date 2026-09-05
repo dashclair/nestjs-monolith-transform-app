@@ -51,15 +51,19 @@ chore: initial project setup with the adjusted filtering and swagger config
 3. Draft the subject (and body, if warranted) following the style above.
 4. Show the drafted message and get the user's go-ahead before committing —
    don't commit silently.
-5. Create the commit via heredoc:
+5. Create the commit. Use a plain `-m` for a subject-only message; for a
+   subject plus body, use a heredoc so formatting survives:
    ```bash
+   git commit -m "<type>(<scope>): <subject>"
+   # or, with a body:
    git commit -m "$(cat <<'EOF'
    <type>(<scope>): <subject>
 
-   Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+   <body>
    EOF
    )"
    ```
+   Do not add a `Co-Authored-By` trailer — this repo's commits don't carry one.
 6. Run `git status` after to confirm success. If a pre-commit hook fails, fix
    the underlying issue and create a **new** commit — never `--amend` past a
    failed hook, and never `--no-verify`.

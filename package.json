@@ -22,7 +22,7 @@
     "db:down": "docker compose stop postgres",
     "typeorm": "typeorm-ts-node-commonjs",
     "migration:create": "npm run typeorm -- migration:create",
-    "migration:generate": "npm run typeorm -- migration:generate -d src/database/data-source.ts",
+    "migration:generate": "node scripts/migration-generate.js",
     "migration:run": "npm run typeorm -- migration:run -d src/database/data-source.ts",
     "migration:revert": "npm run typeorm -- migration:revert -d src/database/data-source.ts",
     "migration:show": "npm run typeorm -- migration:show -d src/database/data-source.ts"
@@ -69,6 +69,7 @@
     "supertest": "^7.0.0",
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0",
     "vite-tsconfig-paths": "^5.1.4",
