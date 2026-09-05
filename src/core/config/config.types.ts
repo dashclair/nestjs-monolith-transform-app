@@ -1,4 +1,4 @@
-import { StringLiteral } from "typescript";
+import { StringLiteral } from 'typescript';
 
 export interface Config {
   PORT: number;
@@ -44,6 +44,36 @@ export interface Config {
   JWT_SECRET: string;
   JWT_ACCESS_TTL?: string;
   JWT_REFRESH_TTL?: string;
+
+  /**
+   * Registration email confirmation
+   */
+  AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION?: boolean;
+  AUTH_REGISTER_CONFIRMATION_METHOD?: 'otp' | 'magic_link';
+
+  /**
+   * Email verification (OTP / magic link) parameters
+   */
+  EMAIL_VERIFICATION_TTL_MINUTES?: number;
+  EMAIL_VERIFICATION_MAX_ATTEMPTS?: number;
+  EMAIL_VERIFICATION_RESEND_INTERVAL_SECONDS?: number;
+  OTP_LENGTH?: number;
+
+  /**
+   * Password policy
+   */
+  AUTH_PASSWORD_MIN_LENGTH?: number;
+  AUTH_PASSWORD_REQUIRE_COMPLEXITY?: boolean;
+
+  /**
+   * Mailer (SMTP)
+   */
+  MAIL_HOST?: string;
+  MAIL_PORT?: number;
+  MAIL_USER?: string;
+  MAIL_PASSWORD?: string;
+  MAIL_SECURE?: boolean;
+  MAIL_FROM?: string;
 
   /**
    * File transformation storage options

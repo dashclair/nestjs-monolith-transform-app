@@ -1,7 +1,13 @@
-import { Exclude } from "class-transformer";
-import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
+import { Exclude } from 'class-transformer';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 
-import { UserRole } from "../user-role.enum";
+import { UserRole } from '../user-role.enum';
 
 @Entity({ name: 'users' })
 export class User {

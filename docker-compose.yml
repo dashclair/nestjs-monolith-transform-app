@@ -17,7 +17,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: mnt-mailpit
+    ports:
+      - "${MAIL_PORT}:1025"
+      - "8025:8025"
 volumes:
   postgres_data:
     driver: local
