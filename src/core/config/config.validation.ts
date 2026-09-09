@@ -67,8 +67,8 @@ export const configValidationSchema = Joi.object<Config>({
 
   MAIL_HOST: Joi.string().optional(),
   MAIL_PORT: Joi.number().port().optional(),
-  MAIL_USER: Joi.string().optional(),
-  MAIL_PASSWORD: Joi.string().optional(),
+  MAIL_USER: Joi.string().empty('').optional(),
+  MAIL_PASSWORD: Joi.string().empty('').optional(),
   MAIL_SECURE: Joi.boolean().optional().default(false),
   MAIL_FROM: Joi.string().optional(),
 

@@ -1,5 +1,3 @@
-import { StringLiteral } from 'typescript';
-
 export interface Config {
   PORT: number;
   NODE_ENV: 'development' | 'production';

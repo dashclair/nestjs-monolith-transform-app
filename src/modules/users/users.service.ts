@@ -20,4 +20,8 @@ export class UsersService {
   }): Promise<User> {
     return this.repo.save(this.repo.create(data));
   }
+
+  save(user: User): Promise<User> {
+    return this.repo.save(user);
+  }
 }

@@ -84,7 +84,10 @@ export class EmailVerificationService {
 
   async canResend(userId: string): Promise<boolean> {
     const verification = await this.repo.findOneBy({ userId });
-    if (!verification || verification.consumedAt) return false;
+
+    if (!verification || verification.consumedAt) {
+      throw new NotFoundException('No pending confirmation for this email');
+    }
     if (!verification.lastSentAt) return true;
 
     const intervalMs =
