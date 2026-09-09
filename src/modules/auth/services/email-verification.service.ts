@@ -5,6 +5,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -17,6 +18,8 @@ import { EmailVerification } from '../entities/email-verification.entity';
 
 @Injectable()
 export class EmailVerificationService {
+  private readonly logger = new Logger(EmailVerificationService.name);
+
   constructor(
     @InjectRepository(EmailVerification)
     private readonly repo: Repository<EmailVerification>,
@@ -62,6 +65,11 @@ export class EmailVerificationService {
       this.configService.get('EMAIL_VERIFICATION_MAX_ATTEMPTS'),
     );
     if (verification.attemptsUsed >= maxAttempts) {
+      this.logger.warn({
+        event: 'auth.email_verification.failed',
+        userId,
+        reason: 'attempts_exceeded',
+      });
       throw new HttpException(
         'Too many attempts, request a new code',
         HttpStatus.TOO_MANY_REQUESTS,
@@ -69,17 +77,28 @@ export class EmailVerificationService {
     }
 
     if (verification.expiresAt.getTime() < Date.now()) {
+      this.logger.warn({
+        event: 'auth.email_verification.failed',
+        userId,
+        reason: 'expired',
+      });
       throw new BadRequestException('Confirmation code expired');
     }
 
     if (verification.codeHash !== this.hash(submittedCode)) {
       verification.attemptsUsed += 1;
       await this.repo.save(verification);
+      this.logger.warn({
+        event: 'auth.email_verification.failed',
+        userId,
+        reason: 'invalid',
+      });
       throw new BadRequestException('Invalid confirmation code');
     }
 
     verification.consumedAt = new Date();
     await this.repo.save(verification);
+    this.logger.log({ event: 'auth.email_verification.confirmed', userId });
   }
 
   async canResend(userId: string): Promise<boolean> {

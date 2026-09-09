@@ -3,20 +3,23 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Transactional } from 'typeorm-transactional';
 
 import { ConfigService } from '@/core/config/config.service';
 import { MailerService } from '@/core/mailer/mailer.service';
-import { UsersService } from '@/modules/users/users.service';
 import { User } from '@/modules/users/entities/user.entity';
+import { UsersService } from '@/modules/users/users.service';
 
 import { EmailVerificationService } from './email-verification.service';
 import { PasswordService } from './password.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly passwordService: PasswordService,
@@ -29,11 +32,12 @@ export class AuthService {
     email: string,
     plaintext: string,
   ): Promise<void> {
-    await this.mailerService.sendMail({
+    const sent = await this.mailerService.sendMail({
       to: email,
       subject: 'Confirm your email',
       html: `Code: ${plaintext}`,
     });
+    this.logger.log({ event: 'auth.email_verification.sent', email, sent });
   }
 
   private async findUserForConfirmation(email: string): Promise<User> {
@@ -48,12 +52,18 @@ export class AuthService {
 
   @Transactional()
   async register(email: string, password: string) {
+    this.logger.log({ event: 'auth.register.attempt', email });
+
     const existing = await this.usersService.findByEmail(email);
-    if (existing) throw new ConflictException('Email already registered');
+    if (existing) {
+      this.logger.warn({ event: 'auth.register.conflict', email });
+      throw new ConflictException('Email already registered');
+    }
 
     const requireConfirmation =
-      this.configService.get('AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION') ===
-      'true';
+      String(
+        this.configService.get('AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION'),
+      ) === 'true';
     const passwordHash = await this.passwordService.hash(password);
     const user = await this.usersService.create({
       email,
@@ -62,6 +72,11 @@ export class AuthService {
     });
 
     if (!requireConfirmation) {
+      this.logger.log({
+        event: 'auth.register.success',
+        email,
+        requiresConfirmation: false,
+      });
       return { id: user.id, email: user.email, createdAt: user.createdAt };
     }
 
@@ -70,6 +85,12 @@ export class AuthService {
     );
     await this.sendConfirmationEmail(email, plaintext);
 
+    this.logger.log({
+      event: 'auth.register.success',
+      email,
+      requiresConfirmation: true,
+      method,
+    });
     return { requiresConfirmation: true, method, email };
   }
 
@@ -112,6 +133,7 @@ export class AuthService {
     const { plaintext } = await this.emailVerificationService.issue(user.id);
     await this.sendConfirmationEmail(email, plaintext);
 
+    this.logger.log({ event: 'auth.email_verification.resend', email });
     return { sent: true as const };
   }
 }
