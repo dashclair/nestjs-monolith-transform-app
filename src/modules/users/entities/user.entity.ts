@@ -32,4 +32,13 @@ export class User {
 
   @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt: Date;
+
+  @Column({ type: 'int', default: 0 })
+  failedLoginAttempts: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  lockedUntil: Date | null;
+
+  @Column({ type: 'int', default: 0 })
+  tokenVersion: number;
 }

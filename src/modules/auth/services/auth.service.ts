@@ -15,6 +15,7 @@ import { UsersService } from '@/modules/users/users.service';
 
 import { EmailVerificationService } from './email-verification.service';
 import { PasswordService } from './password.service';
+import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
 
 @Injectable()
 export class AuthService {
@@ -82,6 +83,7 @@ export class AuthService {
 
     const { method, plaintext } = await this.emailVerificationService.issue(
       user.id,
+      EmailVerificationPurpose.REGISTER
     );
     await this.sendConfirmationEmail(email, plaintext);
 
@@ -98,7 +100,7 @@ export class AuthService {
   async confirmOtp(email: string, code: string) {
     const user = await this.findUserForConfirmation(email);
 
-    await this.emailVerificationService.confirm(user.id, code);
+    await this.emailVerificationService.confirm(user.id, code, EmailVerificationPurpose.REGISTER);
 
     user.isEmailVerified = true;
     await this.usersService.save(user);
@@ -110,7 +112,7 @@ export class AuthService {
   async confirmMagicLink(email: string, token: string) {
     const user = await this.findUserForConfirmation(email);
 
-    await this.emailVerificationService.confirm(user.id, token);
+    await this.emailVerificationService.confirm(user.id, token, EmailVerificationPurpose.REGISTER);
 
     user.isEmailVerified = true;
     await this.usersService.save(user);
@@ -122,7 +124,7 @@ export class AuthService {
   async resend(email: string) {
     const user = await this.findUserForConfirmation(email);
 
-    const canResend = await this.emailVerificationService.canResend(user.id);
+    const canResend = await this.emailVerificationService.canResend(user.id, EmailVerificationPurpose.REGISTER);
     if (!canResend) {
       throw new HttpException(
         'Please wait before requesting a new code',
@@ -130,7 +132,7 @@ export class AuthService {
       );
     }
 
-    const { plaintext } = await this.emailVerificationService.issue(user.id);
+    const { plaintext } = await this.emailVerificationService.issue(user.id, EmailVerificationPurpose.REGISTER);
     await this.sendConfirmationEmail(email, plaintext);
 
     this.logger.log({ event: 'auth.email_verification.resend', email });

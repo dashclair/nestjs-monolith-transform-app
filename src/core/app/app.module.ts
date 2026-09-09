@@ -2,6 +2,8 @@ import { ClassSerializerInterceptor, Module } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
+import { AuthCoreModule } from '@/core/auth/auth-core.module';
+import { JwtAuthGuard } from '@/core/auth/jwt-auth.guard';
 import { ConfigModule } from '@/core/config/config.module';
 import { DatabaseModule } from '@/core/database/database.module';
 import { AllExceptionsFilter } from '@/core/error-handling/all-exceptions.filter';
@@ -23,6 +25,7 @@ import { UsersModule } from '@/modules/users/users.module';
     DatabaseModule,
     HealthModule,
     ThrottlerModule,
+    AuthCoreModule,
     /**
      *
      * Application modules
@@ -44,6 +47,10 @@ import { UsersModule } from '@/modules/users/users.module';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
     },
   ],
 })

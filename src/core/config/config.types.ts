@@ -43,6 +43,11 @@ export interface Config {
   JWT_ACCESS_TTL?: string;
   JWT_REFRESH_TTL?: string;
 
+  AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION?: boolean;
+  AUTH_LOGIN_CONFIRMATION_METHOD?: 'otp' | 'magic_link';
+  AUTH_LOGIN_MAX_FAILED_ATTEMPTS?: number;
+  AUTH_LOGIN_LOCKOUT_MINUTES?: number;
+
   /**
    * Registration email confirmation
    */

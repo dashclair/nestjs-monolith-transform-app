@@ -7,10 +7,14 @@ import { Repository } from 'typeorm';
 export class UsersService {
   constructor(
     @InjectRepository(User) private readonly repo: Repository<User>,
-  ) {}
+  ) { }
 
   findByEmail(email: string): Promise<User | null> {
     return this.repo.findOneBy({ email });
+  }
+
+  findById(id: string): Promise<User | null> {
+    return this.repo.findOneBy({ id });
   }
 
   create(data: {

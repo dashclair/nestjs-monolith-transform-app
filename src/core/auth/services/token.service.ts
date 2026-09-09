@@ -1,0 +1,62 @@
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import type { StringValue } from 'ms';
+
+import { ConfigService } from '@/core/config/config.service';
+import { JwtPayload } from '@/core/auth/auth.types';
+import { User } from '@/modules/users/entities/user.entity';
+
+export interface TokenPair {
+  accessToken: string;
+  refreshToken: string;
+}
+
+@Injectable()
+export class TokenService {
+  constructor(
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  async issueTokens(user: User): Promise<TokenPair> {
+    const basePayload: Omit<JwtPayload, 'type'> = {
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      tokenVersion: user.tokenVersion,
+    };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(
+        { ...basePayload, type: 'access' },
+        {
+          expiresIn: this.configService.get('JWT_ACCESS_TTL') as StringValue,
+        },
+      ),
+      this.jwtService.signAsync(
+        { ...basePayload, type: 'refresh' },
+        {
+          expiresIn: this.configService.get('JWT_REFRESH_TTL') as StringValue,
+        },
+      ),
+    ]);
+
+    return { accessToken, refreshToken };
+  }
+
+  async verifyRefreshToken(token: string): Promise<JwtPayload> {
+    let payload: JwtPayload;
+
+    try {
+      payload = await this.jwtService.verifyAsync<JwtPayload>(token);
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (payload.type !== 'refresh') {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    return payload;
+  }
+}

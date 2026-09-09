@@ -12,6 +12,8 @@ import { ApiTags } from '@nestjs/swagger';
 import { Throttle, seconds } from '@nestjs/throttler';
 import type { FastifyReply } from 'fastify';
 
+import { Public } from '@/core/auth/public.decorator';
+
 import { ConfirmMagicLinkQueryDto } from './dto/confirm-magic-link.query.dto';
 import { ConfirmOtpDto } from './dto/confirm-otp.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -19,6 +21,7 @@ import { ResendConfirmationDto } from './dto/resend-confirmation.dto';
 import { AuthService } from './services/auth.service';
 
 @ApiTags('Auth')
+@Public()
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}

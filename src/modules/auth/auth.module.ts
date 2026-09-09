@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { AuthCoreModule } from '@/core/auth/auth-core.module';
 import { MailerModule } from '@/core/mailer/mailer.module';
 import { UsersModule } from '@/modules/users/users.module';
 
@@ -15,6 +16,7 @@ import { PasswordService } from './services/password.service';
     TypeOrmModule.forFeature([EmailVerification]),
     UsersModule,
     MailerModule,
+    AuthCoreModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, PasswordService, EmailVerificationService],

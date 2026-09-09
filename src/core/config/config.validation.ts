@@ -46,6 +46,19 @@ export const configValidationSchema = Joi.object<Config>({
   JWT_SECRET: Joi.string().min(32).required(),
   JWT_ACCESS_TTL: Joi.string().optional().default('15m'),
   JWT_REFRESH_TTL: Joi.string().optional().default('7d'),
+  AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION: Joi.boolean()
+    .optional()
+    .default(false),
+  AUTH_LOGIN_CONFIRMATION_METHOD: Joi.string()
+    .valid('otp', 'magic_link')
+    .optional()
+    .default('otp'),
+  AUTH_LOGIN_MAX_FAILED_ATTEMPTS: Joi.number()
+    .optional()
+    .default(5),
+  AUTH_LOGIN_LOCKOUT_MINUTES: Joi.number()
+    .optional()
+    .default(15),
 
   AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION: Joi.boolean()
     .optional()

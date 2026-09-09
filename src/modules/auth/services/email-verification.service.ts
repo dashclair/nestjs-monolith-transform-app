@@ -15,6 +15,7 @@ import { ConfigService } from '@/core/config/config.service';
 
 import { EmailVerificationMethod } from '../email-verification-method.enum';
 import { EmailVerification } from '../entities/email-verification.entity';
+import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
 
 @Injectable()
 export class EmailVerificationService {
@@ -28,6 +29,7 @@ export class EmailVerificationService {
 
   async issue(
     userId: string,
+    purpose: EmailVerificationPurpose
   ): Promise<{ method: EmailVerificationMethod; plaintext: string }> {
     const method = this.configService.get(
       'AUTH_REGISTER_CONFIRMATION_METHOD',
@@ -40,7 +42,7 @@ export class EmailVerificationService {
       this.configService.get('EMAIL_VERIFICATION_TTL_MINUTES'),
     );
 
-    const existing = await this.repo.findOneBy({ userId });
+    const existing = await this.repo.findOneBy({ userId, purpose});
     await this.repo.save({
       ...existing,
       userId,
@@ -55,8 +57,8 @@ export class EmailVerificationService {
     return { method, plaintext };
   }
 
-  async confirm(userId: string, submittedCode: string): Promise<void> {
-    const verification = await this.repo.findOneBy({ userId });
+  async confirm(userId: string, submittedCode: string, purpose: EmailVerificationPurpose): Promise<void> {
+    const verification = await this.repo.findOneBy({ userId, purpose });
     if (!verification || verification.consumedAt) {
       throw new NotFoundException('No pending confirmation for this email');
     }
@@ -101,8 +103,8 @@ export class EmailVerificationService {
     this.logger.log({ event: 'auth.email_verification.confirmed', userId });
   }
 
-  async canResend(userId: string): Promise<boolean> {
-    const verification = await this.repo.findOneBy({ userId });
+  async canResend(userId: string, purpose: EmailVerificationPurpose): Promise<boolean> {
+    const verification = await this.repo.findOneBy({ userId, purpose });
 
     if (!verification || verification.consumedAt) {
       throw new NotFoundException('No pending confirmation for this email');

@@ -9,13 +9,14 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { EmailVerificationMethod } from '../email-verification-method.enum';
+import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
 
 @Entity({ name: 'email_verifications' })
+@Index(['userId', 'purpose'])
 export class EmailVerification {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Index()
   @Column({ type: 'uuid' })
   userId: string;
 
@@ -43,4 +44,11 @@ export class EmailVerification {
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
+
+  @Column({
+    type: 'enum',
+    enum: EmailVerificationPurpose,
+    default: EmailVerificationPurpose.REGISTER,
+  })
+  purpose: EmailVerificationPurpose;
 }
