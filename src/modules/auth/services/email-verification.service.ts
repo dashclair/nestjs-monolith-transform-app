@@ -9,6 +9,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { Propagation, Transactional } from 'typeorm-transactional';
 import { Repository } from 'typeorm';
 
 import { ConfigService } from '@/core/config/config.service';
@@ -29,10 +30,14 @@ export class EmailVerificationService {
 
   async issue(
     userId: string,
-    purpose: EmailVerificationPurpose
+    purpose: EmailVerificationPurpose,
   ): Promise<{ method: EmailVerificationMethod; plaintext: string }> {
+    const methodConfigKey =
+      purpose === EmailVerificationPurpose.LOGIN
+        ? 'AUTH_LOGIN_CONFIRMATION_METHOD'
+        : 'AUTH_REGISTER_CONFIRMATION_METHOD';
     const method = this.configService.get(
-      'AUTH_REGISTER_CONFIRMATION_METHOD',
+      methodConfigKey,
     ) as EmailVerificationMethod;
     const plaintext =
       method === EmailVerificationMethod.OTP
@@ -42,10 +47,11 @@ export class EmailVerificationService {
       this.configService.get('EMAIL_VERIFICATION_TTL_MINUTES'),
     );
 
-    const existing = await this.repo.findOneBy({ userId, purpose});
+    const existing = await this.repo.findOneBy({ userId, purpose });
     await this.repo.save({
       ...existing,
       userId,
+      purpose,
       method,
       codeHash: this.hash(plaintext),
       expiresAt: new Date(Date.now() + ttlMinutes * 60_000),
@@ -57,7 +63,11 @@ export class EmailVerificationService {
     return { method, plaintext };
   }
 
-  async confirm(userId: string, submittedCode: string, purpose: EmailVerificationPurpose): Promise<void> {
+  async confirm(
+    userId: string,
+    submittedCode: string,
+    purpose: EmailVerificationPurpose,
+  ): Promise<void> {
     const verification = await this.repo.findOneBy({ userId, purpose });
     if (!verification || verification.consumedAt) {
       throw new NotFoundException('No pending confirmation for this email');
@@ -88,8 +98,12 @@ export class EmailVerificationService {
     }
 
     if (verification.codeHash !== this.hash(submittedCode)) {
-      verification.attemptsUsed += 1;
-      await this.repo.save(verification);
+      // Recorded in its own transaction (REQUIRES_NEW) so the attempt count
+      // survives even though this method throws right after — a throw here
+      // would otherwise roll back the enclosing @Transactional() call in
+      // AuthService (e.g. confirmOtp), silently discarding the increment and
+      // making EMAIL_VERIFICATION_MAX_ATTEMPTS never actually trigger.
+      await this.recordFailedAttempt(verification);
       this.logger.warn({
         event: 'auth.email_verification.failed',
         userId,
@@ -103,7 +117,10 @@ export class EmailVerificationService {
     this.logger.log({ event: 'auth.email_verification.confirmed', userId });
   }
 
-  async canResend(userId: string, purpose: EmailVerificationPurpose): Promise<boolean> {
+  async canResend(
+    userId: string,
+    purpose: EmailVerificationPurpose,
+  ): Promise<boolean> {
     const verification = await this.repo.findOneBy({ userId, purpose });
 
     if (!verification || verification.consumedAt) {
@@ -116,6 +133,14 @@ export class EmailVerificationService {
         this.configService.get('EMAIL_VERIFICATION_RESEND_INTERVAL_SECONDS'),
       ) * 1000;
     return Date.now() - verification.lastSentAt.getTime() >= intervalMs;
+  }
+
+  @Transactional({ propagation: Propagation.REQUIRES_NEW })
+  private async recordFailedAttempt(
+    verification: EmailVerification,
+  ): Promise<void> {
+    verification.attemptsUsed += 1;
+    await this.repo.save(verification);
   }
 
   private generateOtp(): string {

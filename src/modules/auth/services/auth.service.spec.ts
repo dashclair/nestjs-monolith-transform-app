@@ -1,16 +1,20 @@
 import {
   ConflictException,
+  ForbiddenException,
   HttpException,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 
+import { TokenService } from '@/core/auth/services/token.service';
 import { ConfigService } from '@/core/config/config.service';
 import { MailerService } from '@/core/mailer/mailer.service';
 import { User } from '@/modules/users/entities/user.entity';
 import { UsersService } from '@/modules/users/users.service';
 
 import { EmailVerificationMethod } from '../email-verification-method.enum';
+import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
 import { AuthService } from './auth.service';
 import { EmailVerificationService } from './email-verification.service';
 import { PasswordService } from './password.service';
@@ -25,6 +29,7 @@ vi.mock('typeorm-transactional', () => ({
     () =>
     (_target: object, _propertyKey: string, descriptor: PropertyDescriptor) =>
       descriptor,
+  Propagation: { REQUIRES_NEW: 'REQUIRES_NEW' },
 }));
 
 describe('AuthService', () => {
@@ -32,8 +37,10 @@ describe('AuthService', () => {
 
   const usersServiceMock = {
     findByEmail: vi.fn<UsersService['findByEmail']>(),
+    findById: vi.fn<UsersService['findById']>(),
     create: vi.fn<UsersService['create']>(),
     save: vi.fn<UsersService['save']>(),
+    recordFailedLoginAttempt: vi.fn<UsersService['recordFailedLoginAttempt']>(),
   };
   const passwordServiceMock = {
     hash: vi.fn<PasswordService['hash']>(),
@@ -50,6 +57,10 @@ describe('AuthService', () => {
   const configServiceMock = {
     get: vi.fn<ConfigService['get']>(),
   };
+  const tokenServiceMock = {
+    issueTokens: vi.fn<TokenService['issueTokens']>(),
+    verifyRefreshToken: vi.fn<TokenService['verifyRefreshToken']>(),
+  };
 
   const buildUser = (overrides: Partial<User> = {}): User =>
     ({
@@ -57,6 +68,9 @@ describe('AuthService', () => {
       email: 'user@example.com',
       passwordHash: 'hashed',
       isEmailVerified: false,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+      tokenVersion: 0,
       createdAt: new Date('2026-09-09T10:00:00.000Z'),
       updatedAt: new Date('2026-09-09T10:00:00.000Z'),
       ...overrides,
@@ -76,6 +90,7 @@ describe('AuthService', () => {
         },
         { provide: MailerService, useValue: mailerServiceMock },
         { provide: ConfigService, useValue: configServiceMock },
+        { provide: TokenService, useValue: tokenServiceMock },
       ],
     }).compile();
 
@@ -140,6 +155,7 @@ describe('AuthService', () => {
       });
       expect(emailVerificationServiceMock.issue).toHaveBeenCalledWith(
         createdUser.id,
+        EmailVerificationPurpose.REGISTER,
       );
       expect(mailerServiceMock.sendMail).toHaveBeenCalledWith(
         expect.objectContaining({ to: 'user@example.com' }),
@@ -172,6 +188,7 @@ describe('AuthService', () => {
       expect(emailVerificationServiceMock.confirm).toHaveBeenCalledWith(
         user.id,
         '123456',
+        EmailVerificationPurpose.REGISTER,
       );
       expect(usersServiceMock.save).toHaveBeenCalledWith(
         expect.objectContaining({ isEmailVerified: true }),
@@ -193,6 +210,7 @@ describe('AuthService', () => {
       expect(emailVerificationServiceMock.confirm).toHaveBeenCalledWith(
         user.id,
         'token-abc',
+        EmailVerificationPurpose.REGISTER,
       );
       expect(usersServiceMock.save).toHaveBeenCalledWith(
         expect.objectContaining({ isEmailVerified: true }),
@@ -239,11 +257,301 @@ describe('AuthService', () => {
 
       const result = await service.resend('user@example.com');
 
-      expect(emailVerificationServiceMock.issue).toHaveBeenCalledWith(user.id);
+      expect(emailVerificationServiceMock.issue).toHaveBeenCalledWith(
+        user.id,
+        EmailVerificationPurpose.REGISTER,
+      );
       expect(mailerServiceMock.sendMail).toHaveBeenCalledWith(
         expect.objectContaining({ to: 'user@example.com' }),
       );
       expect(result).toEqual({ sent: true });
+    });
+  });
+
+  describe('login', () => {
+    const loginDto = { email: 'user@example.com', password: 'password123' };
+
+    beforeEach(() => {
+      configServiceMock.get.mockImplementation((key: string) => {
+        const values: Record<string, string> = {
+          AUTH_LOGIN_MAX_FAILED_ATTEMPTS: '5',
+          AUTH_LOGIN_LOCKOUT_MINUTES: '15',
+          AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION: 'false',
+        };
+        return values[key];
+      });
+    });
+
+    it('should throw 401 when no user matches the email', async () => {
+      usersServiceMock.findByEmail.mockResolvedValue(null);
+
+      await expect(service.login(loginDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(passwordServiceMock.verify).not.toHaveBeenCalled();
+    });
+
+    it('should throw 429 without checking the password when the account is locked', async () => {
+      const user = buildUser({ lockedUntil: new Date(Date.now() + 60_000) });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+
+      await expect(service.login(loginDto)).rejects.toThrow(HttpException);
+      expect(passwordServiceMock.verify).not.toHaveBeenCalled();
+    });
+
+    it('should record a failed attempt and throw the same 401 as an unknown email', async () => {
+      const user = buildUser({ isEmailVerified: true });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      passwordServiceMock.verify.mockResolvedValue(false);
+      usersServiceMock.recordFailedLoginAttempt.mockResolvedValue(false);
+
+      const unknownEmailError = await service
+        .login({ email: 'nobody@example.com', password: 'x' })
+        .catch((error: Error) => error);
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      const wrongPasswordError = await service
+        .login(loginDto)
+        .catch((error: Error) => error);
+
+      expect(unknownEmailError).toBeInstanceOf(UnauthorizedException);
+      expect(wrongPasswordError).toBeInstanceOf(UnauthorizedException);
+      expect((unknownEmailError as UnauthorizedException).message).toBe(
+        (wrongPasswordError as UnauthorizedException).message,
+      );
+      expect(usersServiceMock.recordFailedLoginAttempt).toHaveBeenCalledWith(
+        user,
+        { maxAttempts: 5, lockoutMinutes: 15 },
+      );
+    });
+
+    it('should lock the account once the failed-attempt limit is reached, even with a correct password', async () => {
+      const user = buildUser({ isEmailVerified: true });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      passwordServiceMock.verify.mockResolvedValue(false);
+      usersServiceMock.recordFailedLoginAttempt.mockResolvedValue(true);
+
+      await expect(service.login(loginDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(usersServiceMock.recordFailedLoginAttempt).toHaveBeenCalledWith(
+        user,
+        { maxAttempts: 5, lockoutMinutes: 15 },
+      );
+    });
+
+    it('should throw 403 when the email is not verified, even with a correct password', async () => {
+      const user = buildUser({ isEmailVerified: false });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      passwordServiceMock.verify.mockResolvedValue(true);
+
+      await expect(service.login(loginDto)).rejects.toThrow(ForbiddenException);
+      expect(tokenServiceMock.issueTokens).not.toHaveBeenCalled();
+    });
+
+    // Regression: the counter reset used to be set in memory but only ever
+    // persisted in the branches *after* the isEmailVerified check, so a
+    // correct password on an unverified account threw 403 without ever
+    // saving failedLoginAttempts=0/lockedUntil=null.
+    it('should persist the failed-attempt reset even when the email is not verified', async () => {
+      const user = buildUser({
+        isEmailVerified: false,
+        failedLoginAttempts: 3,
+        lockedUntil: null,
+      });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      passwordServiceMock.verify.mockResolvedValue(true);
+
+      await expect(service.login(loginDto)).rejects.toThrow(ForbiddenException);
+
+      expect(usersServiceMock.save).toHaveBeenCalledWith(
+        expect.objectContaining({ failedLoginAttempts: 0, lockedUntil: null }),
+      );
+    });
+
+    it('should reset the failed-attempt counter and lockout on successful login', async () => {
+      const user = buildUser({
+        isEmailVerified: true,
+        failedLoginAttempts: 3,
+        lockedUntil: null,
+      });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      passwordServiceMock.verify.mockResolvedValue(true);
+      tokenServiceMock.issueTokens.mockResolvedValue({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      });
+
+      await service.login(loginDto);
+
+      expect(usersServiceMock.save).toHaveBeenCalledWith(
+        expect.objectContaining({ failedLoginAttempts: 0, lockedUntil: null }),
+      );
+    });
+
+    it('should issue tokens directly when login confirmation is disabled', async () => {
+      const user = buildUser({ isEmailVerified: true });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      passwordServiceMock.verify.mockResolvedValue(true);
+      const tokens = {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      };
+      tokenServiceMock.issueTokens.mockResolvedValue(tokens);
+
+      const result = await service.login(loginDto);
+
+      expect(emailVerificationServiceMock.issue).not.toHaveBeenCalled();
+      expect(result).toEqual(tokens);
+    });
+
+    it('should require confirmation and not issue tokens when login confirmation is enabled', async () => {
+      configServiceMock.get.mockImplementation((key: string) => {
+        const values: Record<string, string> = {
+          AUTH_LOGIN_MAX_FAILED_ATTEMPTS: '5',
+          AUTH_LOGIN_LOCKOUT_MINUTES: '15',
+          AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION: 'true',
+        };
+        return values[key];
+      });
+      const user = buildUser({ isEmailVerified: true });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      passwordServiceMock.verify.mockResolvedValue(true);
+      emailVerificationServiceMock.issue.mockResolvedValue({
+        method: EmailVerificationMethod.OTP,
+        plaintext: '123456',
+      });
+
+      const result = await service.login(loginDto);
+
+      expect(tokenServiceMock.issueTokens).not.toHaveBeenCalled();
+      expect(emailVerificationServiceMock.issue).toHaveBeenCalledWith(
+        user.id,
+        EmailVerificationPurpose.LOGIN,
+      );
+      expect(result).toEqual({
+        requiresConfirmation: true,
+        method: EmailVerificationMethod.OTP,
+        email: user.email,
+      });
+    });
+  });
+
+  describe('confirmLoginOtp', () => {
+    it('should confirm with purpose=login and issue tokens', async () => {
+      const user = buildUser({ isEmailVerified: true });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      const tokens = {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      };
+      tokenServiceMock.issueTokens.mockResolvedValue(tokens);
+
+      const result = await service.confirmLoginOtp(
+        'user@example.com',
+        '123456',
+      );
+
+      expect(emailVerificationServiceMock.confirm).toHaveBeenCalledWith(
+        user.id,
+        '123456',
+        EmailVerificationPurpose.LOGIN,
+      );
+      expect(result).toEqual(tokens);
+    });
+  });
+
+  describe('confirmLoginMagicLink', () => {
+    it('should confirm with purpose=login and issue tokens', async () => {
+      const user = buildUser({ isEmailVerified: true });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      const tokens = {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      };
+      tokenServiceMock.issueTokens.mockResolvedValue(tokens);
+
+      const result = await service.confirmLoginMagicLink(
+        'user@example.com',
+        'token-abc',
+      );
+
+      expect(emailVerificationServiceMock.confirm).toHaveBeenCalledWith(
+        user.id,
+        'token-abc',
+        EmailVerificationPurpose.LOGIN,
+      );
+      expect(result).toEqual(tokens);
+    });
+  });
+
+  describe('resendLoginConfirmation', () => {
+    it('should issue a new code with purpose=login and send an email', async () => {
+      const user = buildUser();
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      emailVerificationServiceMock.canResend.mockResolvedValue(true);
+      emailVerificationServiceMock.issue.mockResolvedValue({
+        method: EmailVerificationMethod.OTP,
+        plaintext: '654321',
+      });
+
+      const result = await service.resendLoginConfirmation('user@example.com');
+
+      expect(emailVerificationServiceMock.canResend).toHaveBeenCalledWith(
+        user.id,
+        EmailVerificationPurpose.LOGIN,
+      );
+      expect(emailVerificationServiceMock.issue).toHaveBeenCalledWith(
+        user.id,
+        EmailVerificationPurpose.LOGIN,
+      );
+      expect(result).toEqual({ sent: true });
+    });
+  });
+
+  describe('refresh', () => {
+    it('should throw 401 when the refresh token is invalid or expired', async () => {
+      tokenServiceMock.verifyRefreshToken.mockRejectedValue(
+        new UnauthorizedException('Invalid refresh token'),
+      );
+
+      await expect(service.refresh('bad-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw 401 when the tokenVersion no longer matches the user', async () => {
+      const user = buildUser({ tokenVersion: 2 });
+      tokenServiceMock.verifyRefreshToken.mockResolvedValue({
+        sub: user.id,
+        email: user.email,
+        role: 'user',
+        tokenVersion: 1,
+        type: 'refresh',
+      });
+      usersServiceMock.findById.mockResolvedValue(user);
+
+      await expect(service.refresh('stale-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(tokenServiceMock.issueTokens).not.toHaveBeenCalled();
+    });
+
+    it('should issue a new token pair when the refresh token is valid', async () => {
+      const user = buildUser({ tokenVersion: 1 });
+      tokenServiceMock.verifyRefreshToken.mockResolvedValue({
+        sub: user.id,
+        email: user.email,
+        role: 'user',
+        tokenVersion: 1,
+        type: 'refresh',
+      });
+      usersServiceMock.findById.mockResolvedValue(user);
+      const tokens = { accessToken: 'new-access', refreshToken: 'new-refresh' };
+      tokenServiceMock.issueTokens.mockResolvedValue(tokens);
+
+      const result = await service.refresh('valid-token');
+
+      expect(result).toEqual(tokens);
     });
   });
 });

@@ -1,13 +1,16 @@
 import {
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { Transactional } from 'typeorm-transactional';
 
+import { TokenService, TokenPair } from '@/core/auth/services/token.service';
 import { ConfigService } from '@/core/config/config.service';
 import { MailerService } from '@/core/mailer/mailer.service';
 import { User } from '@/modules/users/entities/user.entity';
@@ -16,10 +19,17 @@ import { UsersService } from '@/modules/users/users.service';
 import { EmailVerificationService } from './email-verification.service';
 import { PasswordService } from './password.service';
 import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
+import { LoginDto } from '../dto/login.dto';
+import { EmailVerificationMethod } from '../email-verification-method.enum';
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+
+  private static readonly INVALID_CREDENTIALS_MESSAGE =
+    'Invalid email or password';
+  private static readonly ACCOUNT_LOCKED_MESSAGE =
+    'Account temporarily locked, try again later';
 
   constructor(
     private readonly usersService: UsersService,
@@ -27,6 +37,7 @@ export class AuthService {
     private readonly emailVerificationService: EmailVerificationService,
     private readonly mailerService: MailerService,
     private readonly configService: ConfigService,
+    private readonly tokenService: TokenService,
   ) {}
 
   private async sendConfirmationEmail(
@@ -83,7 +94,7 @@ export class AuthService {
 
     const { method, plaintext } = await this.emailVerificationService.issue(
       user.id,
-      EmailVerificationPurpose.REGISTER
+      EmailVerificationPurpose.REGISTER,
     );
     await this.sendConfirmationEmail(email, plaintext);
 
@@ -97,10 +108,188 @@ export class AuthService {
   }
 
   @Transactional()
+  async login(dto: LoginDto): Promise<
+    | TokenPair
+    | {
+        requiresConfirmation: true;
+        method: EmailVerificationMethod;
+        email: string;
+      }
+  > {
+    this.logger.log({ event: 'auth.login.attempt', email: dto.email });
+
+    const user = await this.usersService.findByEmail(dto.email);
+    if (!user) {
+      this.logger.warn({
+        event: 'auth.login.failed',
+        email: dto.email,
+        reason: 'user_not_found',
+      });
+      throw new UnauthorizedException(AuthService.INVALID_CREDENTIALS_MESSAGE);
+    }
+
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      this.logger.warn({ event: 'auth.login.locked', userId: user.id });
+      throw new HttpException(
+        AuthService.ACCOUNT_LOCKED_MESSAGE,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const passwordValid = await this.passwordService.verify(
+      user.passwordHash,
+      dto.password,
+    );
+    if (!passwordValid) {
+      const maxAttempts = Number(
+        this.configService.get('AUTH_LOGIN_MAX_FAILED_ATTEMPTS'),
+      );
+      const lockoutMinutes = Number(
+        this.configService.get('AUTH_LOGIN_LOCKOUT_MINUTES'),
+      );
+      const locked = await this.usersService.recordFailedLoginAttempt(user, {
+        maxAttempts,
+        lockoutMinutes,
+      });
+      if (locked) {
+        this.logger.warn({ event: 'auth.login.locked', userId: user.id });
+      }
+      this.logger.warn({
+        event: 'auth.login.failed',
+        userId: user.id,
+        reason: 'invalid_password',
+      });
+      throw new UnauthorizedException(AuthService.INVALID_CREDENTIALS_MESSAGE);
+    }
+
+    user.failedLoginAttempts = 0;
+    user.lockedUntil = null;
+    await this.usersService.save(user);
+
+    if (!user.isEmailVerified) {
+      this.logger.warn({
+        event: 'auth.login.failed',
+        userId: user.id,
+        reason: 'email_not_verified',
+      });
+      throw new ForbiddenException('Email not verified');
+    }
+
+    const requireLoginConfirmation =
+      String(
+        this.configService.get('AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION'),
+      ) === 'true';
+
+    if (!requireLoginConfirmation) {
+      const tokens = await this.tokenService.issueTokens(user);
+      this.logger.log({ event: 'auth.login.success', userId: user.id });
+      return tokens;
+    }
+
+    const { method, plaintext } = await this.emailVerificationService.issue(
+      user.id,
+      EmailVerificationPurpose.LOGIN,
+    );
+    await this.sendConfirmationEmail(user.email, plaintext);
+    this.logger.log({
+      event: 'auth.login.success',
+      userId: user.id,
+      requiresConfirmation: true,
+    });
+    return { requiresConfirmation: true, method, email: user.email };
+  }
+
+  @Transactional()
+  async confirmLoginOtp(email: string, code: string): Promise<TokenPair> {
+    const user = await this.findUserForConfirmation(email);
+
+    await this.emailVerificationService.confirm(
+      user.id,
+      code,
+      EmailVerificationPurpose.LOGIN,
+    );
+
+    const tokens = await this.tokenService.issueTokens(user);
+    this.logger.log({
+      event: 'auth.login.confirmation_confirmed',
+      userId: user.id,
+    });
+    return tokens;
+  }
+
+  @Transactional()
+  async confirmLoginMagicLink(
+    email: string,
+    token: string,
+  ): Promise<TokenPair> {
+    const user = await this.findUserForConfirmation(email);
+
+    await this.emailVerificationService.confirm(
+      user.id,
+      token,
+      EmailVerificationPurpose.LOGIN,
+    );
+
+    const tokens = await this.tokenService.issueTokens(user);
+    this.logger.log({
+      event: 'auth.login.confirmation_confirmed',
+      userId: user.id,
+    });
+    return tokens;
+  }
+
+  @Transactional()
+  async resendLoginConfirmation(email: string) {
+    const user = await this.findUserForConfirmation(email);
+
+    const canResend = await this.emailVerificationService.canResend(
+      user.id,
+      EmailVerificationPurpose.LOGIN,
+    );
+    if (!canResend) {
+      throw new HttpException(
+        'Please wait before requesting a new code',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const { plaintext } = await this.emailVerificationService.issue(
+      user.id,
+      EmailVerificationPurpose.LOGIN,
+    );
+    await this.sendConfirmationEmail(email, plaintext);
+
+    this.logger.log({ event: 'auth.login.confirmation_sent', email });
+    return { sent: true as const };
+  }
+
+  @Transactional()
+  async refresh(refreshToken: string): Promise<TokenPair> {
+    const payload = await this.tokenService.verifyRefreshToken(refreshToken);
+    const user = await this.usersService.findById(payload.sub);
+
+    if (!user || payload.tokenVersion !== user.tokenVersion) {
+      this.logger.warn({
+        event: 'auth.refresh.failed',
+        userId: payload.sub,
+      });
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const tokens = await this.tokenService.issueTokens(user);
+    this.logger.log({ event: 'auth.refresh.success', userId: user.id });
+    return tokens;
+  }
+
+  @Transactional()
   async confirmOtp(email: string, code: string) {
     const user = await this.findUserForConfirmation(email);
 
-    await this.emailVerificationService.confirm(user.id, code, EmailVerificationPurpose.REGISTER);
+    await this.emailVerificationService.confirm(
+      user.id,
+      code,
+      EmailVerificationPurpose.REGISTER,
+    );
 
     user.isEmailVerified = true;
     await this.usersService.save(user);
@@ -112,7 +301,11 @@ export class AuthService {
   async confirmMagicLink(email: string, token: string) {
     const user = await this.findUserForConfirmation(email);
 
-    await this.emailVerificationService.confirm(user.id, token, EmailVerificationPurpose.REGISTER);
+    await this.emailVerificationService.confirm(
+      user.id,
+      token,
+      EmailVerificationPurpose.REGISTER,
+    );
 
     user.isEmailVerified = true;
     await this.usersService.save(user);
@@ -124,7 +317,10 @@ export class AuthService {
   async resend(email: string) {
     const user = await this.findUserForConfirmation(email);
 
-    const canResend = await this.emailVerificationService.canResend(user.id, EmailVerificationPurpose.REGISTER);
+    const canResend = await this.emailVerificationService.canResend(
+      user.id,
+      EmailVerificationPurpose.REGISTER,
+    );
     if (!canResend) {
       throw new HttpException(
         'Please wait before requesting a new code',
@@ -132,7 +328,10 @@ export class AuthService {
       );
     }
 
-    const { plaintext } = await this.emailVerificationService.issue(user.id, EmailVerificationPurpose.REGISTER);
+    const { plaintext } = await this.emailVerificationService.issue(
+      user.id,
+      EmailVerificationPurpose.REGISTER,
+    );
     await this.sendConfirmationEmail(email, plaintext);
 
     this.logger.log({ event: 'auth.email_verification.resend', email });

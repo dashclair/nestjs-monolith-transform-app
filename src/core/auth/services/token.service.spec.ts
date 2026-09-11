@@ -1,0 +1,122 @@
+import { UnauthorizedException } from '@nestjs/common';
+import { JwtModule, JwtService } from '@nestjs/jwt';
+import { Test, TestingModule } from '@nestjs/testing';
+
+import { ConfigService } from '@/core/config/config.service';
+import { User } from '@/modules/users/entities/user.entity';
+
+import { TokenService } from './token.service';
+
+describe('TokenService', () => {
+  let service: TokenService;
+  let jwtService: JwtService;
+
+  const configValues: Record<string, string> = {
+    JWT_SECRET: 'test-secret',
+    JWT_ACCESS_TTL: '15m',
+    JWT_REFRESH_TTL: '7d',
+  };
+  const configServiceMock = {
+    get: vi.fn((key: string) => configValues[key]),
+  };
+
+  const buildUser = (overrides: Partial<User> = {}): User =>
+    ({
+      id: 'user-id',
+      email: 'user@example.com',
+      role: 'user',
+      tokenVersion: 0,
+      ...overrides,
+    }) as User;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    configServiceMock.get.mockImplementation(
+      (key: string) => configValues[key],
+    );
+
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [JwtModule.register({ secret: configValues.JWT_SECRET })],
+      providers: [
+        TokenService,
+        { provide: ConfigService, useValue: configServiceMock },
+      ],
+    }).compile();
+
+    service = module.get(TokenService);
+    jwtService = module.get(JwtService);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  describe('issueTokens', () => {
+    it('signs an access token and a refresh token with distinct type claims', async () => {
+      const user = buildUser();
+
+      const { accessToken, refreshToken } = await service.issueTokens(user);
+
+      expect(jwtService.decode(accessToken)).toMatchObject({
+        sub: user.id,
+        email: user.email,
+        role: user.role,
+        tokenVersion: user.tokenVersion,
+        type: 'access',
+      });
+      expect(jwtService.decode(refreshToken)).toMatchObject({
+        sub: user.id,
+        type: 'refresh',
+      });
+    });
+  });
+
+  describe('verifyRefreshToken', () => {
+    it('returns the payload for a valid refresh token', async () => {
+      const user = buildUser({ tokenVersion: 3 });
+      const { refreshToken } = await service.issueTokens(user);
+
+      const payload = await service.verifyRefreshToken(refreshToken);
+
+      expect(payload).toMatchObject({
+        sub: user.id,
+        tokenVersion: 3,
+        type: 'refresh',
+      });
+    });
+
+    it('rejects an access token presented as a refresh token', async () => {
+      const { accessToken } = await service.issueTokens(buildUser());
+
+      await expect(service.verifyRefreshToken(accessToken)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('rejects a token signed with a different secret', async () => {
+      const rogueJwtService = new JwtService({ secret: 'wrong-secret' });
+      const forged = await rogueJwtService.signAsync({
+        sub: 'user-id',
+        email: 'user@example.com',
+        role: 'user',
+        tokenVersion: 0,
+        type: 'refresh',
+      });
+
+      await expect(service.verifyRefreshToken(forged)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('rejects an expired refresh token', async () => {
+      const { refreshToken } = await service.issueTokens(buildUser());
+
+      vi.useFakeTimers();
+      vi.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000); // past the 7d JWT_REFRESH_TTL
+
+      await expect(service.verifyRefreshToken(refreshToken)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+  });
+});

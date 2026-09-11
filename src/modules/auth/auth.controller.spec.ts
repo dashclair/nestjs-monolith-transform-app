@@ -13,6 +13,11 @@ describe('AuthController', () => {
     confirmOtp: vi.fn<AuthService['confirmOtp']>(),
     confirmMagicLink: vi.fn<AuthService['confirmMagicLink']>(),
     resend: vi.fn<AuthService['resend']>(),
+    login: vi.fn<AuthService['login']>(),
+    confirmLoginOtp: vi.fn<AuthService['confirmLoginOtp']>(),
+    confirmLoginMagicLink: vi.fn<AuthService['confirmLoginMagicLink']>(),
+    resendLoginConfirmation: vi.fn<AuthService['resendLoginConfirmation']>(),
+    refresh: vi.fn<AuthService['refresh']>(),
   };
 
   beforeEach(async () => {
@@ -36,8 +41,98 @@ describe('AuthController', () => {
   });
 
   describe('login', () => {
-    it('should return a placeholder response', () => {
-      expect(controller.login()).toEqual({ message: 'Not implemented yet' });
+    it('should log in via AuthService and return its result', async () => {
+      const serviceResult = {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      };
+      authServiceMock.login.mockResolvedValue(serviceResult);
+
+      const dto = { email: 'user@example.com', password: 'password123' };
+      const result = await controller.login(dto);
+
+      expect(authServiceMock.login).toHaveBeenCalledOnce();
+      expect(authServiceMock.login).toHaveBeenCalledWith(dto);
+      expect(result).toBe(serviceResult);
+    });
+  });
+
+  describe('confirmLoginOtp', () => {
+    it('should confirm via AuthService and return its result', async () => {
+      const serviceResult = {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      };
+      authServiceMock.confirmLoginOtp.mockResolvedValue(serviceResult);
+
+      const result = await controller.confirmLoginOtp({
+        email: 'user@example.com',
+        code: '123456',
+      });
+
+      expect(authServiceMock.confirmLoginOtp).toHaveBeenCalledOnce();
+      expect(authServiceMock.confirmLoginOtp).toHaveBeenCalledWith(
+        'user@example.com',
+        '123456',
+      );
+      expect(result).toBe(serviceResult);
+    });
+  });
+
+  describe('confirmLoginLink', () => {
+    it('should confirm via AuthService using the magic-link token and return its result', async () => {
+      const serviceResult = {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      };
+      authServiceMock.confirmLoginMagicLink.mockResolvedValue(serviceResult);
+
+      const result = await controller.confirmLoginLink({
+        email: 'user@example.com',
+        token: 'abc123',
+      });
+
+      expect(authServiceMock.confirmLoginMagicLink).toHaveBeenCalledOnce();
+      expect(authServiceMock.confirmLoginMagicLink).toHaveBeenCalledWith(
+        'user@example.com',
+        'abc123',
+      );
+      expect(result).toBe(serviceResult);
+    });
+  });
+
+  describe('resendLogin', () => {
+    it('should resend via AuthService and return its result', async () => {
+      const serviceResult = { sent: true as const };
+      authServiceMock.resendLoginConfirmation.mockResolvedValue(serviceResult);
+
+      const result = await controller.resendLogin({
+        email: 'user@example.com',
+      });
+
+      expect(authServiceMock.resendLoginConfirmation).toHaveBeenCalledOnce();
+      expect(authServiceMock.resendLoginConfirmation).toHaveBeenCalledWith(
+        'user@example.com',
+      );
+      expect(result).toBe(serviceResult);
+    });
+  });
+
+  describe('refresh', () => {
+    it('should refresh via AuthService and return its result', async () => {
+      const serviceResult = {
+        accessToken: 'new-access-token',
+        refreshToken: 'new-refresh-token',
+      };
+      authServiceMock.refresh.mockResolvedValue(serviceResult);
+
+      const result = await controller.refresh({
+        refreshToken: 'old-refresh-token',
+      });
+
+      expect(authServiceMock.refresh).toHaveBeenCalledOnce();
+      expect(authServiceMock.refresh).toHaveBeenCalledWith('old-refresh-token');
+      expect(result).toBe(serviceResult);
     });
   });
 

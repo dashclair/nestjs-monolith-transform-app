@@ -53,12 +53,8 @@ export const configValidationSchema = Joi.object<Config>({
     .valid('otp', 'magic_link')
     .optional()
     .default('otp'),
-  AUTH_LOGIN_MAX_FAILED_ATTEMPTS: Joi.number()
-    .optional()
-    .default(5),
-  AUTH_LOGIN_LOCKOUT_MINUTES: Joi.number()
-    .optional()
-    .default(15),
+  AUTH_LOGIN_MAX_FAILED_ATTEMPTS: Joi.number().optional().default(5),
+  AUTH_LOGIN_LOCKOUT_MINUTES: Joi.number().optional().default(15),
 
   AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION: Joi.boolean()
     .optional()
