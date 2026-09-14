@@ -8,14 +8,14 @@ import { Repository } from 'typeorm';
 export class UsersService {
   constructor(
     @InjectRepository(User) private readonly repo: Repository<User>,
-  ) {}
+  ) { }
 
-  findByEmail(email: string): Promise<User | null> {
-    return this.repo.findOneBy({ email });
+  findByEmail(email: string, relations: string[] = []): Promise<User | null> {
+    return this.repo.findOne({ where: { email }, relations });
   }
 
-  findById(id: string): Promise<User | null> {
-    return this.repo.findOneBy({ id });
+  findById(id: string, relations: string[] = []): Promise<User | null> {
+    return this.repo.findOne({ where: { id }, relations });
   }
 
   create(data: {
