@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { FastifyRequest } from 'fastify';
 
@@ -33,7 +33,7 @@ export class RolesController {
   @RequirePermission('rbac', 'update')
   @Put(':roleId')
   update(
-    @Param('roleId') roleId: string,
+    @Param('roleId', ParseUUIDPipe) roleId: string,
     @Body() dto: UpdateRoleDto,
     @Req() req: AuthenticatedRequest,
   ) {
@@ -42,7 +42,10 @@ export class RolesController {
 
   @RequirePermission('rbac', 'delete')
   @Delete(':roleId')
-  remove(@Param('roleId') roleId: string, @Req() req: AuthenticatedRequest) {
+  remove(
+    @Param('roleId', ParseUUIDPipe) roleId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return this.rolesService.remove(roleId, req.user.userId);
   }
 }

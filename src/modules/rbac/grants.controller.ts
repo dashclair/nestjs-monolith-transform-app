@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { FastifyRequest } from 'fastify';
 
@@ -33,7 +33,7 @@ export class GrantsController {
   @RequirePermission('rbac', 'update')
   @Put(':grantId')
   update(
-    @Param('grantId') grantId: string,
+    @Param('grantId', ParseUUIDPipe) grantId: string,
     @Body() dto: UpdateGrantDto,
     @Req() req: AuthenticatedRequest,
   ) {
@@ -42,7 +42,10 @@ export class GrantsController {
 
   @RequirePermission('rbac', 'delete')
   @Delete(':grantId')
-  remove(@Param('grantId') grantId: string, @Req() req: AuthenticatedRequest) {
+  remove(
+    @Param('grantId', ParseUUIDPipe) grantId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return this.grantsService.remove(grantId, req.user.userId);
   }
 }

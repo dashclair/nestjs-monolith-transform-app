@@ -53,7 +53,8 @@ export class PermissionsService {
             }
         }
 
-        Object.assign(permission, dto);
+        if (dto.name !== undefined) permission.name = dto.name;
+        if (dto.actions !== undefined) permission.actions = dto.actions;
         const saved = await this.permissionsRepo.save(permission);
         await this.rbacConfigService.reload();
         this.logger.log({ event: 'rbac.permission.updated', actorUserId, permissionId });

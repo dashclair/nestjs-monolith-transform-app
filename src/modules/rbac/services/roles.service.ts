@@ -53,7 +53,8 @@ export class RolesService {
             }
         }
 
-        Object.assign(role, dto);
+        if (dto.name !== undefined) role.name = dto.name;
+        if (dto.description !== undefined) role.description = dto.description;
         const saved = await this.rolesRepo.save(role);
         await this.rbacConfigService.reload();
         this.logger.log({ event: 'rbac.role.updated', actorUserId, roleId });
