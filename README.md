@@ -47,6 +47,8 @@ npm run migration:show       # List applied / pending
 
 CLI uses `src/database/data-source.ts`. At runtime, Nest uses the DataSource from `DatabaseModule`. If `POSTGRES_MIGRATIONS_RUN=true`, pending migrations also run on app start.
 
+- **Bootstrap admin:** after the first `migration:run`, run `npm run seed:admin` once to get an account with the `admin` role (reads `BOOTSTRAP_ADMIN_EMAIL`/`BOOTSTRAP_ADMIN_PASSWORD` from `.env`) — needed before any `/admin/rbac/*` endpoint is reachable. Safe to re-run; it won't create a duplicate assignment.
+
 ## Libraries
 
 | Purpose       | Library                  |

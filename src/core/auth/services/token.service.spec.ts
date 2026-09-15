@@ -24,7 +24,7 @@ describe('TokenService', () => {
     ({
       id: 'user-id',
       email: 'user@example.com',
-      role: 'user',
+      roles: [{ name: 'user' }],
       tokenVersion: 0,
       ...overrides,
     }) as User;
@@ -60,7 +60,7 @@ describe('TokenService', () => {
       expect(jwtService.decode(accessToken)).toMatchObject({
         sub: user.id,
         email: user.email,
-        role: user.role,
+        roles: user.roles.map((r) => r.name),
         tokenVersion: user.tokenVersion,
         type: 'access',
       });
@@ -98,7 +98,7 @@ describe('TokenService', () => {
       const forged = await rogueJwtService.signAsync({
         sub: 'user-id',
         email: 'user@example.com',
-        role: 'user',
+        roles: ['user'],
         tokenVersion: 0,
         type: 'refresh',
       });

@@ -53,7 +53,7 @@ export class AuthService {
   }
 
   private async findUserForConfirmation(email: string): Promise<User> {
-    const user = await this.usersService.findByEmail(email);
+    const user = await this.usersService.findByEmail(email, ['roles']);
 
     if (!user) {
       throw new NotFoundException('No pending confirmation for this email');
@@ -118,7 +118,7 @@ export class AuthService {
   > {
     this.logger.log({ event: 'auth.login.attempt', email: dto.email });
 
-    const user = await this.usersService.findByEmail(dto.email);
+    const user = await this.usersService.findByEmail(dto.email, ['roles']);
     if (!user) {
       this.logger.warn({
         event: 'auth.login.failed',
@@ -266,7 +266,7 @@ export class AuthService {
   @Transactional()
   async refresh(refreshToken: string): Promise<TokenPair> {
     const payload = await this.tokenService.verifyRefreshToken(refreshToken);
-    const user = await this.usersService.findById(payload.sub);
+    const user = await this.usersService.findById(payload.sub, ['roles']);
 
     if (!user || payload.tokenVersion !== user.tokenVersion) {
       this.logger.warn({

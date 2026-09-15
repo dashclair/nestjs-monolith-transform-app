@@ -3,11 +3,13 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinTable,
+  ManyToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 
-import { UserRole } from '../user-role.enum';
+import { Role } from '@/modules/rbac/entities/role.entity';
 
 @Entity({ name: 'users' })
 export class User {
@@ -21,8 +23,13 @@ export class User {
   @Column({ type: 'varchar' })
   passwordHash: string;
 
-  @Column({ type: 'enum', enum: UserRole, default: UserRole.USER })
-  role: UserRole;
+  @ManyToMany(() => Role)
+  @JoinTable({
+    name: 'user_roles',
+    joinColumn: { name: 'userId', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'roleId', referencedColumnName: 'id' },
+  })
+  roles: Role[];
 
   @Column({ type: 'boolean', default: false })
   isEmailVerified: boolean;

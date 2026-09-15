@@ -16,13 +16,13 @@ export class TokenService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-  ) {}
+  ) { }
 
   async issueTokens(user: User): Promise<TokenPair> {
     const basePayload: Omit<JwtPayload, 'type'> = {
       sub: user.id,
       email: user.email,
-      role: user.role,
+      roles: user.roles.map((r) => r.name),
       tokenVersion: user.tokenVersion,
     };
 

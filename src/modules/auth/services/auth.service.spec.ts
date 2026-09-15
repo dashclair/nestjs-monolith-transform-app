@@ -524,7 +524,7 @@ describe('AuthService', () => {
       tokenServiceMock.verifyRefreshToken.mockResolvedValue({
         sub: user.id,
         email: user.email,
-        role: 'user',
+        roles: ['user'],
         tokenVersion: 1,
         type: 'refresh',
       });
@@ -541,7 +541,7 @@ describe('AuthService', () => {
       tokenServiceMock.verifyRefreshToken.mockResolvedValue({
         sub: user.id,
         email: user.email,
-        role: 'user',
+        roles: ['user'],
         tokenVersion: 1,
         type: 'refresh',
       });
