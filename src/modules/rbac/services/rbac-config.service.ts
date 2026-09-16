@@ -38,10 +38,23 @@ export class RbacConfigService implements OnModuleInit {
     }
 
     this.grantsByRoleName = next;
-    this.logger.log({ event: 'rbac.config.reloaded', grantsCount: grants.length });
+    this.logger.log({
+      event: 'rbac.config.reloaded',
+      grantsCount: grants.length,
+    });
   }
 
   getGrantsForRole(roleName: string): CachedGrant[] {
     return this.grantsByRoleName.get(roleName) ?? [];
+  }
+
+  hasPermission(roles: string[], resource: string, action: string): boolean {
+    return roles.some((roleName) =>
+      this.getGrantsForRole(roleName).some((grant) => {
+        if (grant.permissionName !== resource) return false;
+        if (!grant.actions || grant.actions.length === 0) return true;
+        return grant.actions.includes(action);
+      }),
+    );
   }
 }
