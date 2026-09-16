@@ -42,6 +42,8 @@ export interface Config {
   JWT_SECRET: string;
   JWT_ACCESS_TTL?: string;
   JWT_REFRESH_TTL?: string;
+  COOKIE_SAMESITE?: 'lax' | 'strict' | 'none'; // default 'lax'
+  COOKIE_SECURE?: boolean; // default false — включить в проде (HTTPS)
 
   AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION?: boolean;
   AUTH_LOGIN_CONFIRMATION_METHOD?: 'otp' | 'magic_link';

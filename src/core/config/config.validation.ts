@@ -45,7 +45,11 @@ export const configValidationSchema = Joi.object<Config>({
    */
   JWT_SECRET: Joi.string().min(32).required(),
   JWT_ACCESS_TTL: Joi.string().optional().default('15m'),
-  JWT_REFRESH_TTL: Joi.string().optional().default('7d'),
+  JWT_REFRESH_TTL: Joi.string().optional().default('30d'),
+  COOKIE_SAMESITE: Joi.string().valid('lax', 'strict', 'none').optional().default('lax'),
+  COOKIE_SECURE: Joi.boolean()
+    .optional()
+    .default(false), // default false — включить в проде (HTTPS)
   AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION: Joi.boolean()
     .optional()
     .default(false),
