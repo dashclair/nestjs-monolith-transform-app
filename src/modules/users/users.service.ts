@@ -1,14 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Propagation, Transactional } from 'typeorm-transactional';
-import { User } from './entities/user.entity';
 import { Repository } from 'typeorm';
+
+import { DEFAULT_ROLE_NAME } from '@/modules/rbac/rbac.constants';
+import { Role } from '@/modules/rbac/entities/role.entity';
+
+import { User } from './entities/user.entity';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(User) private readonly repo: Repository<User>,
-  ) { }
+    @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
+  ) {}
 
   findByEmail(email: string, relations: string[] = []): Promise<User | null> {
     return this.repo.findOne({ where: { email }, relations });
@@ -18,12 +23,24 @@ export class UsersService {
     return this.repo.findOne({ where: { id }, relations });
   }
 
-  create(data: {
+  async create(data: {
     email: string;
     passwordHash: string;
     isEmailVerified: boolean;
+    roles?: Role[];
   }): Promise<User> {
-    return this.repo.save(this.repo.create(data));
+    const roles = data.roles ?? (await this.findDefaultRole());
+    return this.repo.save(this.repo.create({ ...data, roles }));
+  }
+
+  private async findDefaultRole(): Promise<Role[]> {
+    const role = await this.roleRepo.findOneBy({ name: DEFAULT_ROLE_NAME });
+    if (!role) {
+      throw new Error(
+        `Default role "${DEFAULT_ROLE_NAME}" not found — has the RBAC seed migration run?`,
+      );
+    }
+    return [role];
   }
 
   save(user: User): Promise<User> {
