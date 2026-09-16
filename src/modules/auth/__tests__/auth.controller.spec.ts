@@ -4,9 +4,9 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { ConfigService } from '@/core/config/config.service';
 
-import { AuthController } from './auth.controller';
-import { EmailVerificationMethod } from './email-verification-method.enum';
-import { AuthService } from './services/auth.service';
+import { AuthController } from '../auth.controller';
+import { EmailVerificationMethod } from '../email-verification-method.enum';
+import { AuthService } from '../services/auth.service';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -20,6 +20,7 @@ describe('AuthController', () => {
     confirmLoginMagicLink: vi.fn<AuthService['confirmLoginMagicLink']>(),
     resendLoginConfirmation: vi.fn<AuthService['resendLoginConfirmation']>(),
     refresh: vi.fn<AuthService['refresh']>(),
+    logout: vi.fn<AuthService['logout']>(),
   };
   const configServiceMock = {
     get: vi.fn<ConfigService['get']>((key: string) => {
@@ -180,9 +181,7 @@ describe('AuthController', () => {
 
       const result = await controller.refresh(request, response);
 
-      expect(authServiceMock.refresh).toHaveBeenCalledWith(
-        'old-refresh-token',
-      );
+      expect(authServiceMock.refresh).toHaveBeenCalledWith('old-refresh-token');
       expect(response.setCookie).toHaveBeenCalledWith(
         'access_token',
         'new-access-token',
@@ -209,17 +208,26 @@ describe('AuthController', () => {
   });
 
   describe('logout', () => {
-    it('clears both auth cookies with the same path they were set with', () => {
+    it('delegates to AuthService.logout with the access token cookie', async () => {
       const response = buildResponse();
+      const request = buildRequest({ access_token: 'access-token-value' });
 
-      const result = controller.logout(response);
+      const result = await controller.logout(request, response);
 
-      expect(response.clearCookie).toHaveBeenCalledWith('access_token', {
-        path: '/',
-      });
-      expect(response.clearCookie).toHaveBeenCalledWith('refresh_token', {
-        path: '/auth/refresh',
-      });
+      expect(authServiceMock.logout).toHaveBeenCalledWith(
+        response,
+        'access-token-value',
+      );
+      expect(result).toEqual({ loggedOut: true });
+    });
+
+    it('still logs out when there is no access token cookie', async () => {
+      const response = buildResponse();
+      const request = buildRequest();
+
+      const result = await controller.logout(request, response);
+
+      expect(authServiceMock.logout).toHaveBeenCalledWith(response, undefined);
       expect(result).toEqual({ loggedOut: true });
     });
   });

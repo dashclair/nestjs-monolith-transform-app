@@ -2,10 +2,12 @@ import {
   ConflictException,
   ForbiddenException,
   HttpException,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import type { FastifyReply } from 'fastify';
 
 import { TokenService } from '@/core/auth/services/token.service';
 import { ConfigService } from '@/core/config/config.service';
@@ -15,9 +17,9 @@ import { UsersService } from '@/modules/users/users.service';
 
 import { EmailVerificationMethod } from '../email-verification-method.enum';
 import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
-import { AuthService } from './auth.service';
-import { EmailVerificationService } from './email-verification.service';
-import { PasswordService } from './password.service';
+import { AuthService } from '../services/auth.service';
+import { EmailVerificationService } from '../services/email-verification.service';
+import { PasswordService } from '../services/password.service';
 
 // `AuthService`'s methods are decorated with `@Transactional()`, which needs
 // `initializeTransactionalContext()` to have run first (only happens in
@@ -60,6 +62,7 @@ describe('AuthService', () => {
   const tokenServiceMock = {
     issueTokens: vi.fn<TokenService['issueTokens']>(),
     verifyRefreshToken: vi.fn<TokenService['verifyRefreshToken']>(),
+    verifyAccessToken: vi.fn<TokenService['verifyAccessToken']>(),
   };
 
   const buildUser = (overrides: Partial<User> = {}): User =>
@@ -527,6 +530,7 @@ describe('AuthService', () => {
         roles: ['user'],
         tokenVersion: 1,
         type: 'refresh',
+        jti: 'jti-1',
       });
       usersServiceMock.findById.mockResolvedValue(user);
 
@@ -544,6 +548,7 @@ describe('AuthService', () => {
         roles: ['user'],
         tokenVersion: 1,
         type: 'refresh',
+        jti: 'jti-1',
       });
       usersServiceMock.findById.mockResolvedValue(user);
       const tokens = { accessToken: 'new-access', refreshToken: 'new-refresh' };
@@ -552,6 +557,60 @@ describe('AuthService', () => {
       const result = await service.refresh('valid-token');
 
       expect(result).toEqual(tokens);
+    });
+  });
+
+  describe('logout', () => {
+    const buildResponse = (): FastifyReply =>
+      ({ clearCookie: vi.fn() }) as unknown as FastifyReply;
+
+    it('clears both auth cookies regardless of the access token', async () => {
+      const response = buildResponse();
+
+      await service.logout(response);
+
+      expect(response.clearCookie).toHaveBeenCalledWith('access_token', {
+        path: '/',
+      });
+      expect(response.clearCookie).toHaveBeenCalledWith('refresh_token', {
+        path: '/auth/refresh',
+      });
+    });
+
+    it('does not attempt to verify a token when none was provided', async () => {
+      await service.logout(buildResponse());
+
+      expect(tokenServiceMock.verifyAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('logs the userId when a valid access token is provided', async () => {
+      tokenServiceMock.verifyAccessToken.mockResolvedValue({
+        sub: 'user-1',
+        email: 'user@example.com',
+        roles: ['user'],
+        tokenVersion: 0,
+        type: 'access',
+        jti: 'jti-1',
+      });
+      const logSpy = vi.spyOn(Logger.prototype, 'log');
+
+      await service.logout(buildResponse(), 'valid-token');
+
+      expect(tokenServiceMock.verifyAccessToken).toHaveBeenCalledWith(
+        'valid-token',
+      );
+      expect(logSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'auth.logout', userId: 'user-1' }),
+      );
+    });
+
+    it('logs anonymously when the access token is missing or invalid', async () => {
+      tokenServiceMock.verifyAccessToken.mockResolvedValue(null);
+      const logSpy = vi.spyOn(Logger.prototype, 'log');
+
+      await service.logout(buildResponse(), 'expired-token');
+
+      expect(logSpy).toHaveBeenCalledWith({ event: 'auth.logout' });
     });
   });
 });

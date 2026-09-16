@@ -34,13 +34,16 @@ import type { StringValue } from 'ms';
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
-    private readonly configService: ConfigService
-  ) { }
+    private readonly configService: ConfigService,
+  ) {}
 
   private applyAuthCookies(response: FastifyReply, tokens: TokenPair): void {
     setAuthCookies(response, tokens, {
       secure: String(this.configService.get('COOKIE_SECURE')) === 'true',
-      sameSite: this.configService.get('COOKIE_SAMESITE') as 'lax' | 'strict' | 'none',
+      sameSite: this.configService.get('COOKIE_SAMESITE') as
+        | 'lax'
+        | 'strict'
+        | 'none',
       accessTtl: this.configService.get('JWT_ACCESS_TTL') as StringValue,
       refreshTtl: this.configService.get('JWT_REFRESH_TTL') as StringValue,
     });
@@ -49,7 +52,8 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() dto: LoginDto,
+  async login(
+    @Body() dto: LoginDto,
     @Res({ passthrough: true }) response: FastifyReply,
   ) {
     const result = await this.authService.login(dto);
@@ -59,7 +63,7 @@ export class AuthController {
     }
 
     this.applyAuthCookies(response, result);
-    return { success: true }
+    return { success: true };
   }
 
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })
@@ -71,19 +75,23 @@ export class AuthController {
   ) {
     const tokens = await this.authService.confirmLoginOtp(dto.email, dto.code);
 
-    this.applyAuthCookies(response, tokens)
-    return { success: true }
+    this.applyAuthCookies(response, tokens);
+    return { success: true };
   }
 
   @Throttle({ default: { limit: 10, ttl: seconds(60) } })
   @Get('login/confirm-link')
   async confirmLoginLink(
     @Query() dto: ConfirmMagicLinkQueryDto,
-    @Res({ passthrough: true }) response: FastifyReply,) {
-    const tokens = await this.authService.confirmLoginMagicLink(dto.email, dto.token);
-    this.applyAuthCookies(response, tokens)
+    @Res({ passthrough: true }) response: FastifyReply,
+  ) {
+    const tokens = await this.authService.confirmLoginMagicLink(
+      dto.email,
+      dto.token,
+    );
+    this.applyAuthCookies(response, tokens);
 
-    return { success: true }
+    return { success: true };
   }
 
   @Throttle({ default: { limit: 5, ttl: seconds(60) } })
@@ -145,12 +153,13 @@ export class AuthController {
     return this.authService.resend(dto.email);
   }
 
-  @Public()
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  logout(@Res({ passthrough: true }) response: FastifyReply) {
-    response.clearCookie('access_token', { path: '/' });
-    response.clearCookie('refresh_token', { path: '/auth/refresh' });
+  async logout(
+    @Req() request: FastifyRequest,
+    @Res({ passthrough: true }) response: FastifyReply,
+  ) {
+    await this.authService.logout(response, request.cookies?.access_token);
     return { loggedOut: true };
   }
 }

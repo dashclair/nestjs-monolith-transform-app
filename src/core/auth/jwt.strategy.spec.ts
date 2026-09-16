@@ -84,6 +84,7 @@ describe('JwtStrategy.validate', () => {
       roles: ['user'],
       tokenVersion: 0,
       type: 'access',
+      jti: 'jti-1',
       ...overrides,
     };
   }
