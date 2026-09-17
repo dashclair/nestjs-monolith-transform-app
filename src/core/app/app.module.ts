@@ -10,12 +10,6 @@ import { AllExceptionsFilter } from '@/core/error-handling/all-exceptions.filter
 import { TestErrorsController } from '@/core/error-handling/test-errors.controller';
 import { HealthModule } from '@/core/health/health.module';
 import { ThrottlerModule } from '@/core/throttler/throttler.module';
-
-/**
- *
- * Application modules
- *
- */
 import { AuthModule } from '@/modules/auth/auth.module';
 import { RbacModule } from '@/modules/rbac/rbac.module';
 import { UsersModule } from '@/modules/users/users.module';
@@ -27,11 +21,6 @@ import { UsersModule } from '@/modules/users/users.module';
     HealthModule,
     ThrottlerModule,
     AuthCoreModule,
-    /**
-     *
-     * Application modules
-     *
-     */
     AuthModule,
     UsersModule,
     RbacModule,

@@ -2,7 +2,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import type { FastifyRequest } from 'fastify';
 
 import { ConfigService } from '@/core/config/config.service';
-import { UsersService } from '@/modules/users/users.service';
+import { UsersService } from '@/modules/users/services/users.service';
 import { User } from '@/modules/users/entities/user.entity';
 
 import { JwtPayload } from './auth.types';

@@ -3,7 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import type { FastifyRequest } from 'fastify';
 import { ConfigService } from '@/core/config/config.service';
-import { UsersService } from '@/modules/users/users.service';
+import { UsersService } from '@/modules/users/services/users.service';
 import { JwtPayload, RequestUser } from './auth.types';
 
 export function cookieExtractor(req: FastifyRequest): string | null {

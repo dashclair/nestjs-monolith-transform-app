@@ -19,6 +19,13 @@ export class User {
   @Column({ type: 'varchar', unique: true })
   email: string;
 
+  @Column({
+    type: 'varchar',
+    nullable: true,
+    default: null
+  })
+  photo?: string | null;
+
   @Exclude()
   @Column({ type: 'varchar' })
   passwordHash: string;

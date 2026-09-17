@@ -23,6 +23,8 @@ export interface Config {
    */
   THROTTLE_GLOBAL_TTL?: number;
   THROTTLE_GLOBAL_LIMIT?: number;
+  THROTTLE_USERS_READ_LIMIT?: number; // default 20
+  THROTTLE_USERS_READ_TTL?: number;   // default 60 
 
   /**
    * PostgreSQL database options
