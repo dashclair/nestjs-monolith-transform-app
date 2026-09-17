@@ -21,6 +21,7 @@ import { PasswordService } from './password.service';
 import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
 import { LoginDto } from '../dto/login.dto';
 import { EmailVerificationMethod } from '../email-verification-method.enum';
+import { FastifyReply } from 'fastify';
 
 @Injectable()
 export class AuthService {
@@ -336,5 +337,19 @@ export class AuthService {
 
     this.logger.log({ event: 'auth.email_verification.resend', email });
     return { sent: true as const };
+  }
+
+  async logout(response: FastifyReply, accessToken?: string): Promise<void> {
+    response.clearCookie('access_token', { path: '/' });
+    response.clearCookie('refresh_token', { path: '/auth/refresh' });
+
+    const payload = accessToken
+      ? await this.tokenService.verifyAccessToken(accessToken)
+      : null;
+
+    this.logger.log({
+      event: 'auth.logout',
+      ...(payload && { userId: payload.sub }),
+    });
   }
 }

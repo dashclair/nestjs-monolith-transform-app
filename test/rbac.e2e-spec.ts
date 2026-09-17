@@ -1,3 +1,4 @@
+import fastifyCookie from '@fastify/cookie';
 import { ValidationPipe } from '@nestjs/common';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -6,6 +7,7 @@ import request from 'supertest';
 import { In, Repository } from 'typeorm';
 
 import { AppModule } from '@/core/app/app.module';
+import { ConfigService } from '@/core/config/config.service';
 import { PasswordService } from '@/modules/auth/services/password.service';
 import { Permission } from '@/modules/rbac/entities/permission.entity';
 import { Role } from '@/modules/rbac/entities/role.entity';
@@ -30,12 +32,31 @@ describe('RBAC (e2e)', () => {
   const PERMISSION_NAME = 'e2e-rbac-articles';
   const NON_EXISTENT_ID = '00000000-0000-0000-0000-000000000000';
 
+  // Since T-014, login no longer returns tokens in the body — the access
+  // token travels only as a `Set-Cookie`. Extracting it here and reusing it
+  // as a Bearer header below is a deliberate choice, not an oversight: it
+  // lets this whole suite keep testing RBAC/guards without also having to
+  // juggle a cookie jar through every subsequent request (Bearer fallback
+  // in JwtStrategy exists exactly for this kind of tooling convenience).
+  const extractCookieValue = (res: request.Response, name: string): string => {
+    const setCookieHeader = res.headers['set-cookie'] as unknown as
+      | string[]
+      | undefined;
+    const cookie = setCookieHeader?.find((c) => c.startsWith(`${name}=`));
+    if (!cookie) {
+      throw new Error(
+        `Expected a Set-Cookie header for "${name}", got: ${JSON.stringify(setCookieHeader)}`,
+      );
+    }
+    return cookie.split(';')[0].split('=')[1];
+  };
+
   const login = async (email: string): Promise<string> => {
     const res = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email, password: PASSWORD })
       .expect(200);
-    return res.body.accessToken as string;
+    return extractCookieValue(res, 'access_token');
   };
 
   const createVerifiedUser = async (email: string, roleNames: string[] = []) => {
@@ -80,6 +101,13 @@ describe('RBAC (e2e)', () => {
         transformOptions: { enableImplicitConversion: true },
       }),
     );
+    // e2e specs boot AppModule directly (see the file-level comment above),
+    // bypassing main.ts's bootstrap() — so @fastify/cookie has to be
+    // registered here too, otherwise `reply.setCookie()`/`request.cookies`
+    // don't exist and every login/refresh call 500s.
+    await app.register(fastifyCookie, {
+      secret: moduleFixture.get(ConfigService).get('COOKIE_SECRET'),
+    });
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
 

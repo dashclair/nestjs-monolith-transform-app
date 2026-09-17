@@ -4,6 +4,7 @@ export interface JwtPayload {
   roles: string[];
   tokenVersion: number;
   type: 'access' | 'refresh';
+  jti: string;
 }
 
 export interface RequestUser {

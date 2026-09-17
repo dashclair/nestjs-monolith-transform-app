@@ -1,10 +1,12 @@
 import { HttpStatus } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 
-import { AuthController } from './auth.controller';
-import { EmailVerificationMethod } from './email-verification-method.enum';
-import { AuthService } from './services/auth.service';
+import { ConfigService } from '@/core/config/config.service';
+
+import { AuthController } from '../auth.controller';
+import { EmailVerificationMethod } from '../email-verification-method.enum';
+import { AuthService } from '../services/auth.service';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -18,7 +20,31 @@ describe('AuthController', () => {
     confirmLoginMagicLink: vi.fn<AuthService['confirmLoginMagicLink']>(),
     resendLoginConfirmation: vi.fn<AuthService['resendLoginConfirmation']>(),
     refresh: vi.fn<AuthService['refresh']>(),
+    logout: vi.fn<AuthService['logout']>(),
   };
+  const configServiceMock = {
+    get: vi.fn<ConfigService['get']>((key: string) => {
+      const values: Record<string, string> = {
+        COOKIE_SECURE: 'false',
+        COOKIE_SAMESITE: 'lax',
+        JWT_ACCESS_TTL: '15m',
+        JWT_REFRESH_TTL: '30d',
+      };
+      return values[key];
+    }),
+  };
+
+  function buildResponse(): FastifyReply {
+    return {
+      setCookie: vi.fn(),
+      clearCookie: vi.fn(),
+      status: vi.fn(),
+    } as unknown as FastifyReply;
+  }
+
+  function buildRequest(cookies: Record<string, string> = {}): FastifyRequest {
+    return { cookies } as unknown as FastifyRequest;
+  }
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -26,10 +52,8 @@ describe('AuthController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
       providers: [
-        {
-          provide: AuthService,
-          useValue: authServiceMock,
-        },
+        { provide: AuthService, useValue: authServiceMock },
+        { provide: ConfigService, useValue: configServiceMock },
       ],
     }).compile();
 
@@ -41,63 +65,91 @@ describe('AuthController', () => {
   });
 
   describe('login', () => {
-    it('should log in via AuthService and return its result', async () => {
+    it('sets auth cookies and returns { success: true } when login succeeds', async () => {
       const serviceResult = {
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
       };
       authServiceMock.login.mockResolvedValue(serviceResult);
+      const response = buildResponse();
 
       const dto = { email: 'user@example.com', password: 'password123' };
-      const result = await controller.login(dto);
+      const result = await controller.login(dto, response);
 
-      expect(authServiceMock.login).toHaveBeenCalledOnce();
       expect(authServiceMock.login).toHaveBeenCalledWith(dto);
+      expect(response.setCookie).toHaveBeenCalledWith(
+        'access_token',
+        'access-token',
+        expect.objectContaining({ httpOnly: true, path: '/' }),
+      );
+      expect(response.setCookie).toHaveBeenCalledWith(
+        'refresh_token',
+        'refresh-token',
+        expect.objectContaining({ httpOnly: true, path: '/auth/refresh' }),
+      );
+      expect(result).toEqual({ success: true });
+    });
+
+    it('does not set cookies and passes through the confirmation payload when login requires confirmation', async () => {
+      const serviceResult = {
+        requiresConfirmation: true as const,
+        method: EmailVerificationMethod.OTP,
+        email: 'user@example.com',
+      };
+      authServiceMock.login.mockResolvedValue(serviceResult);
+      const response = buildResponse();
+
+      const dto = { email: 'user@example.com', password: 'password123' };
+      const result = await controller.login(dto, response);
+
+      expect(response.setCookie).not.toHaveBeenCalled();
       expect(result).toBe(serviceResult);
     });
   });
 
   describe('confirmLoginOtp', () => {
-    it('should confirm via AuthService and return its result', async () => {
+    it('sets auth cookies and returns { success: true }', async () => {
       const serviceResult = {
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
       };
       authServiceMock.confirmLoginOtp.mockResolvedValue(serviceResult);
+      const response = buildResponse();
 
-      const result = await controller.confirmLoginOtp({
-        email: 'user@example.com',
-        code: '123456',
-      });
+      const result = await controller.confirmLoginOtp(
+        { email: 'user@example.com', code: '123456' },
+        response,
+      );
 
-      expect(authServiceMock.confirmLoginOtp).toHaveBeenCalledOnce();
       expect(authServiceMock.confirmLoginOtp).toHaveBeenCalledWith(
         'user@example.com',
         '123456',
       );
-      expect(result).toBe(serviceResult);
+      expect(response.setCookie).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({ success: true });
     });
   });
 
   describe('confirmLoginLink', () => {
-    it('should confirm via AuthService using the magic-link token and return its result', async () => {
+    it('sets auth cookies and returns { success: true }', async () => {
       const serviceResult = {
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
       };
       authServiceMock.confirmLoginMagicLink.mockResolvedValue(serviceResult);
+      const response = buildResponse();
 
-      const result = await controller.confirmLoginLink({
-        email: 'user@example.com',
-        token: 'abc123',
-      });
+      const result = await controller.confirmLoginLink(
+        { email: 'user@example.com', token: 'abc123' },
+        response,
+      );
 
-      expect(authServiceMock.confirmLoginMagicLink).toHaveBeenCalledOnce();
       expect(authServiceMock.confirmLoginMagicLink).toHaveBeenCalledWith(
         'user@example.com',
         'abc123',
       );
-      expect(result).toBe(serviceResult);
+      expect(response.setCookie).toHaveBeenCalledTimes(2);
+      expect(result).toEqual({ success: true });
     });
   });
 
@@ -110,7 +162,6 @@ describe('AuthController', () => {
         email: 'user@example.com',
       });
 
-      expect(authServiceMock.resendLoginConfirmation).toHaveBeenCalledOnce();
       expect(authServiceMock.resendLoginConfirmation).toHaveBeenCalledWith(
         'user@example.com',
       );
@@ -119,20 +170,65 @@ describe('AuthController', () => {
   });
 
   describe('refresh', () => {
-    it('should refresh via AuthService and return its result', async () => {
+    it('reads the refresh token from the cookie, sets new cookies and returns { success: true }', async () => {
       const serviceResult = {
         accessToken: 'new-access-token',
         refreshToken: 'new-refresh-token',
       };
       authServiceMock.refresh.mockResolvedValue(serviceResult);
+      const response = buildResponse();
+      const request = buildRequest({ refresh_token: 'old-refresh-token' });
 
-      const result = await controller.refresh({
-        refreshToken: 'old-refresh-token',
-      });
+      const result = await controller.refresh(request, response);
 
-      expect(authServiceMock.refresh).toHaveBeenCalledOnce();
       expect(authServiceMock.refresh).toHaveBeenCalledWith('old-refresh-token');
-      expect(result).toBe(serviceResult);
+      expect(response.setCookie).toHaveBeenCalledWith(
+        'access_token',
+        'new-access-token',
+        expect.objectContaining({ path: '/' }),
+      );
+      expect(response.setCookie).toHaveBeenCalledWith(
+        'refresh_token',
+        'new-refresh-token',
+        expect.objectContaining({ path: '/auth/refresh' }),
+      );
+      expect(result).toEqual({ success: true });
+    });
+
+    it('rejects with 401 without calling AuthService when the refresh cookie is missing', async () => {
+      const response = buildResponse();
+      const request = buildRequest();
+
+      await expect(controller.refresh(request, response)).rejects.toThrow(
+        'Invalid refresh token',
+      );
+      expect(authServiceMock.refresh).not.toHaveBeenCalled();
+      expect(response.setCookie).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('logout', () => {
+    it('delegates to AuthService.logout with the access token cookie', async () => {
+      const response = buildResponse();
+      const request = buildRequest({ access_token: 'access-token-value' });
+
+      const result = await controller.logout(request, response);
+
+      expect(authServiceMock.logout).toHaveBeenCalledWith(
+        response,
+        'access-token-value',
+      );
+      expect(result).toEqual({ loggedOut: true });
+    });
+
+    it('still logs out when there is no access token cookie', async () => {
+      const response = buildResponse();
+      const request = buildRequest();
+
+      const result = await controller.logout(request, response);
+
+      expect(authServiceMock.logout).toHaveBeenCalledWith(response, undefined);
+      expect(result).toEqual({ loggedOut: true });
     });
   });
 
@@ -143,8 +239,7 @@ describe('AuthController', () => {
         email: 'user@example.com',
         createdAt: new Date('2026-09-09T10:00:00.000Z'),
       };
-      const status = vi.fn();
-      const response = { status } as unknown as FastifyReply;
+      const response = buildResponse();
 
       authServiceMock.register.mockResolvedValue(serviceResult);
 
@@ -156,12 +251,11 @@ describe('AuthController', () => {
         response,
       );
 
-      expect(authServiceMock.register).toHaveBeenCalledOnce();
       expect(authServiceMock.register).toHaveBeenCalledWith(
         'user@example.com',
         'password123',
       );
-      expect(status).toHaveBeenCalledWith(HttpStatus.CREATED);
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.CREATED);
       expect(result).toBe(serviceResult);
     });
 
@@ -171,8 +265,7 @@ describe('AuthController', () => {
         method: EmailVerificationMethod.OTP,
         email: 'user@example.com',
       };
-      const status = vi.fn();
-      const response = { status } as unknown as FastifyReply;
+      const response = buildResponse();
 
       authServiceMock.register.mockResolvedValue(serviceResult);
 
@@ -184,12 +277,11 @@ describe('AuthController', () => {
         response,
       );
 
-      expect(authServiceMock.register).toHaveBeenCalledOnce();
       expect(authServiceMock.register).toHaveBeenCalledWith(
         'user@example.com',
         'password123',
       );
-      expect(status).toHaveBeenCalledWith(HttpStatus.OK);
+      expect(response.status).toHaveBeenCalledWith(HttpStatus.OK);
       expect(result).toBe(serviceResult);
     });
   });
@@ -204,7 +296,6 @@ describe('AuthController', () => {
         code: '123456',
       });
 
-      expect(authServiceMock.confirmOtp).toHaveBeenCalledOnce();
       expect(authServiceMock.confirmOtp).toHaveBeenCalledWith(
         'user@example.com',
         '123456',
@@ -223,7 +314,6 @@ describe('AuthController', () => {
         token: 'abc123',
       });
 
-      expect(authServiceMock.confirmMagicLink).toHaveBeenCalledOnce();
       expect(authServiceMock.confirmMagicLink).toHaveBeenCalledWith(
         'user@example.com',
         'abc123',
@@ -239,7 +329,6 @@ describe('AuthController', () => {
 
       const result = await controller.resend({ email: 'user@example.com' });
 
-      expect(authServiceMock.resend).toHaveBeenCalledOnce();
       expect(authServiceMock.resend).toHaveBeenCalledWith('user@example.com');
       expect(result).toBe(serviceResult);
     });

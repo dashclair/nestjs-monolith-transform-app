@@ -14,7 +14,7 @@ import { ConfigService } from '@/core/config/config.service';
 import { EmailVerificationMethod } from '../email-verification-method.enum';
 import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
 import { EmailVerification } from '../entities/email-verification.entity';
-import { EmailVerificationService } from './email-verification.service';
+import { EmailVerificationService } from '../services/email-verification.service';
 
 // `recordFailedAttempt` is decorated with `@Transactional()`, which needs
 // `initializeTransactionalContext()` to have run first (only happens in

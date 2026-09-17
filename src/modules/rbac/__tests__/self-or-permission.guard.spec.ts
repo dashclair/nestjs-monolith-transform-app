@@ -8,11 +8,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { RequestUser } from '@/core/auth/auth.types';
 
-import { PermissionsGuard } from '../guards/permissions.guard';
+import { SelfOrPermissionGuard } from '../guards/self-or-permission.guard';
 import { RbacConfigService } from '../services/rbac-config.service';
 
-describe('PermissionsGuard', () => {
-  let guard: PermissionsGuard;
+describe('SelfOrPermissionGuard', () => {
+  let guard: SelfOrPermissionGuard;
 
   const reflectorMock = {
     getAllAndOverride: vi.fn(),
@@ -21,12 +21,15 @@ describe('PermissionsGuard', () => {
     hasPermission: vi.fn(),
   };
 
-  const buildContext = (user: RequestUser | undefined): ExecutionContext =>
+  const buildContext = (
+    user: RequestUser | undefined,
+    params: Record<string, string> = {},
+  ): ExecutionContext =>
     ({
       getHandler: () => ({}),
       getClass: () => ({}),
       switchToHttp: () => ({
-        getRequest: () => ({ user }),
+        getRequest: () => ({ user, params }),
       }),
     }) as unknown as ExecutionContext;
 
@@ -35,16 +38,16 @@ describe('PermissionsGuard', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        PermissionsGuard,
+        SelfOrPermissionGuard,
         { provide: Reflector, useValue: reflectorMock },
         { provide: RbacConfigService, useValue: rbacConfigServiceMock },
       ],
     }).compile();
 
-    guard = module.get(PermissionsGuard);
+    guard = module.get(SelfOrPermissionGuard);
   });
 
-  it('allows the request through when the route has no @RequirePermission metadata', () => {
+  it('allows the request through when the route has no @SelfOrPermission metadata', () => {
     reflectorMock.getAllAndOverride.mockReturnValue(undefined);
 
     const result = guard.canActivate(buildContext(undefined));
@@ -53,50 +56,73 @@ describe('PermissionsGuard', () => {
     expect(rbacConfigServiceMock.hasPermission).not.toHaveBeenCalled();
   });
 
-  it('throws UnauthorizedException when the route requires a permission but request.user is missing', () => {
+  it('throws UnauthorizedException when the route is guarded but request.user is missing', () => {
     reflectorMock.getAllAndOverride.mockReturnValue({
-      resource: 'rbac',
+      paramName: 'id',
+      resource: 'users',
       action: 'read',
     });
 
-    expect(() => guard.canActivate(buildContext(undefined))).toThrow(
-      UnauthorizedException,
-    );
+    expect(() =>
+      guard.canActivate(buildContext(undefined, { id: 'user-1' })),
+    ).toThrow(UnauthorizedException);
   });
 
-  it('allows the request when RbacConfigService.hasPermission grants it', () => {
+  it('allows a user to access their own resource regardless of roles/grants', () => {
     reflectorMock.getAllAndOverride.mockReturnValue({
-      resource: 'rbac',
+      paramName: 'id',
+      resource: 'users',
+      action: 'read',
+    });
+
+    const result = guard.canActivate(
+      buildContext(
+        { userId: 'user-1', email: 'u@test.com', roles: [] },
+        { id: 'user-1' },
+      ),
+    );
+
+    expect(result).toBe(true);
+    expect(rbacConfigServiceMock.hasPermission).not.toHaveBeenCalled();
+  });
+
+  it('allows access to another user’s resource when RbacConfigService.hasPermission grants it', () => {
+    reflectorMock.getAllAndOverride.mockReturnValue({
+      paramName: 'id',
+      resource: 'users',
       action: 'read',
     });
     rbacConfigServiceMock.hasPermission.mockReturnValue(true);
 
     const result = guard.canActivate(
-      buildContext({ userId: 'user-1', email: 'u@test.com', roles: ['admin'] }),
+      buildContext(
+        { userId: 'user-1', email: 'u@test.com', roles: ['admin'] },
+        { id: 'user-2' },
+      ),
     );
 
     expect(result).toBe(true);
     expect(rbacConfigServiceMock.hasPermission).toHaveBeenCalledWith(
       ['admin'],
-      'rbac',
+      'users',
       'read',
     );
   });
 
-  it('throws ForbiddenException when RbacConfigService.hasPermission denies it', () => {
+  it('throws ForbiddenException when accessing another user’s resource without a grant', () => {
     reflectorMock.getAllAndOverride.mockReturnValue({
-      resource: 'articles',
+      paramName: 'id',
+      resource: 'users',
       action: 'delete',
     });
     rbacConfigServiceMock.hasPermission.mockReturnValue(false);
 
     expect(() =>
       guard.canActivate(
-        buildContext({
-          userId: 'user-1',
-          email: 'u@test.com',
-          roles: ['editor'],
-        }),
+        buildContext(
+          { userId: 'user-1', email: 'u@test.com', roles: ['user'] },
+          { id: 'user-2' },
+        ),
       ),
     ).toThrow(ForbiddenException);
   });

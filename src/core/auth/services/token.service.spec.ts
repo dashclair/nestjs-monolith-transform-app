@@ -69,6 +69,30 @@ describe('TokenService', () => {
         type: 'refresh',
       });
     });
+
+    it('gives the access and refresh token distinct jti claims', async () => {
+      const { accessToken, refreshToken } =
+        await service.issueTokens(buildUser());
+
+      const accessJti = jwtService.decode<{ jti: string }>(accessToken).jti;
+      const refreshJti = jwtService.decode<{ jti: string }>(refreshToken).jti;
+
+      expect(accessJti).toEqual(expect.any(String));
+      expect(refreshJti).toEqual(expect.any(String));
+      expect(accessJti).not.toBe(refreshJti);
+    });
+
+    it('gives every call a fresh jti, even for tokens issued in the same tick', async () => {
+      const user = buildUser();
+
+      const [first, second] = await Promise.all([
+        service.issueTokens(user),
+        service.issueTokens(user),
+      ]);
+
+      expect(first.accessToken).not.toBe(second.accessToken);
+      expect(first.refreshToken).not.toBe(second.refreshToken);
+    });
   });
 
   describe('verifyRefreshToken', () => {

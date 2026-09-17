@@ -40,12 +40,10 @@ export class PermissionsGuard implements CanActivate {
       throw new UnauthorizedException();
     }
 
-    const allowed = user.roles.some((roleName) =>
-      this.rbacConfigService.getGrantsForRole(roleName).some((grant) => {
-        if (grant.permissionName !== required.resource) return false;
-        if (!grant.actions || grant.actions.length === 0) return true;
-        return grant.actions.includes(required.action);
-      }),
+    const allowed = this.rbacConfigService.hasPermission(
+      user.roles,
+      required.resource,
+      required.action,
     );
 
     if (!allowed) {

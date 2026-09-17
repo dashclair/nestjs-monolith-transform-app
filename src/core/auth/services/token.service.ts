@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { StringValue } from 'ms';
@@ -16,10 +18,10 @@ export class TokenService {
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-  ) { }
+  ) {}
 
   async issueTokens(user: User): Promise<TokenPair> {
-    const basePayload: Omit<JwtPayload, 'type'> = {
+    const basePayload: Omit<JwtPayload, 'type' | 'jti'> = {
       sub: user.id,
       email: user.email,
       roles: user.roles.map((r) => r.name),
@@ -28,13 +30,13 @@ export class TokenService {
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(
-        { ...basePayload, type: 'access' },
+        { ...basePayload, type: 'access', jti: randomUUID() },
         {
           expiresIn: this.configService.get('JWT_ACCESS_TTL') as StringValue,
         },
       ),
       this.jwtService.signAsync(
-        { ...basePayload, type: 'refresh' },
+        { ...basePayload, type: 'refresh', jti: randomUUID() },
         {
           expiresIn: this.configService.get('JWT_REFRESH_TTL') as StringValue,
         },
@@ -58,5 +60,14 @@ export class TokenService {
     }
 
     return payload;
+  }
+
+  async verifyAccessToken(token: string): Promise<JwtPayload | null> {
+    try {
+      const payload = await this.jwtService.verifyAsync<JwtPayload>(token);
+      return payload.type === 'access' ? payload : null;
+    } catch {
+      return null;
+    }
   }
 }

@@ -106,4 +106,61 @@ describe('RbacConfigService', () => {
       expect(service.getGrantsForRole('user')).toEqual([]);
     });
   });
+
+  describe('hasPermission', () => {
+    it('allows any action when the grant has no actions restriction', async () => {
+      grantsRepoMock.find.mockResolvedValue([buildGrant({ actions: null })]);
+      await service.reload();
+
+      expect(service.hasPermission(['admin'], 'rbac', 'delete')).toBe(true);
+    });
+
+    it('allows the action only when it is in the grant’s actions list', async () => {
+      grantsRepoMock.find.mockResolvedValue([
+        buildGrant({
+          role: { id: 'role-1', name: 'editor' } as Role,
+          permission: { id: 'perm-1', name: 'articles' } as Permission,
+          actions: ['create', 'update'],
+        }),
+      ]);
+      await service.reload();
+
+      expect(service.hasPermission(['editor'], 'articles', 'create')).toBe(
+        true,
+      );
+      expect(service.hasPermission(['editor'], 'articles', 'delete')).toBe(
+        false,
+      );
+    });
+
+    it('returns false when none of the user’s roles have a grant for the resource', async () => {
+      grantsRepoMock.find.mockResolvedValue([
+        buildGrant({
+          role: { id: 'role-1', name: 'editor' } as Role,
+          permission: { id: 'perm-1', name: 'articles' } as Permission,
+        }),
+      ]);
+      await service.reload();
+
+      expect(service.hasPermission(['editor'], 'rbac', 'read')).toBe(false);
+    });
+
+    it('returns false (not a throw) when the role is not present in the cached config at all', async () => {
+      grantsRepoMock.find.mockResolvedValue([]);
+      await service.reload();
+
+      expect(service.hasPermission(['role-not-in-cache'], 'rbac', 'read')).toBe(
+        false,
+      );
+    });
+
+    it('allows access when at least one of several roles grants it (union, not intersection)', async () => {
+      grantsRepoMock.find.mockResolvedValue([buildGrant()]);
+      await service.reload();
+
+      expect(service.hasPermission(['user', 'admin'], 'rbac', 'read')).toBe(
+        true,
+      );
+    });
+  });
 });
