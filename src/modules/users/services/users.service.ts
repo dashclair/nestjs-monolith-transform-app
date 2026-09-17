@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Propagation, Transactional } from 'typeorm-transactional';
 import { Repository } from 'typeorm';
@@ -6,14 +6,23 @@ import { Repository } from 'typeorm';
 import { DEFAULT_ROLE_NAME } from '@/modules/rbac/rbac.constants';
 import { Role } from '@/modules/rbac/entities/role.entity';
 
-import { User } from './entities/user.entity';
+
+import { plainToInstance } from 'class-transformer';
+import { User } from '../entities/user.entity';
+import { UserProfileDto } from '../dto/user-profile.dto';
+import { SelfOrPermissionAccess } from '@/core/self-or-permission/self-or-permission.types';
+import { UserProfileFieldsPolicy } from './user-profile-policy.service';
+import { UserProfileField } from '../types/user-profile-policy.types';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name)
   constructor(
     @InjectRepository(User) private readonly repo: Repository<User>,
     @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
-  ) {}
+
+    private readonly userProfileFieldsPolicy: UserProfileFieldsPolicy
+  ) { }
 
   findByEmail(email: string, relations: string[] = []): Promise<User | null> {
     return this.repo.findOne({ where: { email }, relations });
@@ -45,6 +54,71 @@ export class UsersService {
 
   save(user: User): Promise<User> {
     return this.repo.save(user);
+  }
+
+  async getUserProfile(
+    userId: string,
+    access: SelfOrPermissionAccess,
+  ): Promise<UserProfileDto> {
+    const allowedFields =
+      this.userProfileFieldsPolicy.getAllowedFields(access);
+
+    const isAllowed = (field: UserProfileField) =>
+      allowedFields.includes(field);
+
+    const user = await this.repo.findOne({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: isAllowed(UserProfileField.Email),
+        photo: isAllowed(UserProfileField.Photo),
+        isEmailVerified: isAllowed(UserProfileField.IsEmailVerified),
+        createdAt: isAllowed(UserProfileField.CreatedAt),
+      },
+    });
+
+    if (!user) {
+      this.logger.log({
+        event: 'users.profile.viewed',
+        viewerUserId: access.actorUserId,
+        targetUserId: userId,
+        result: 404,
+      });
+      throw new NotFoundException('User not found');
+    }
+
+    const profile: Partial<UserProfileDto> = {};
+
+    if (isAllowed(UserProfileField.Id)) {
+      profile.id = user.id;
+    }
+
+    if (isAllowed(UserProfileField.Email)) {
+      profile.email = user.email;
+    }
+
+    if (isAllowed(UserProfileField.Photo)) {
+      profile.photo = user.photo ?? null;
+    }
+
+    if (isAllowed(UserProfileField.IsEmailVerified)) {
+      profile.isEmailVerified = user.isEmailVerified;
+    }
+
+    if (isAllowed(UserProfileField.CreatedAt)) {
+      profile.createdAt = user.createdAt;
+    }
+
+    this.logger.log({
+      event: 'users.profile.viewed',
+      viewerUserId: access.actorUserId,
+      targetUserId: userId,
+      result: 200,
+    });
+
+    return plainToInstance(UserProfileDto, profile, {
+      excludeExtraneousValues: true,
+    });
   }
 
   /**

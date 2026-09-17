@@ -13,7 +13,7 @@ import { TokenService } from '@/core/auth/services/token.service';
 import { ConfigService } from '@/core/config/config.service';
 import { MailerService } from '@/core/mailer/mailer.service';
 import { User } from '@/modules/users/entities/user.entity';
-import { UsersService } from '@/modules/users/users.service';
+import { UsersService } from '@/modules/users/services/users.service';
 
 import { EmailVerificationMethod } from '../email-verification-method.enum';
 import { EmailVerificationPurpose } from '../email-verification-purpose.enum';

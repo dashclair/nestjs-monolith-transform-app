@@ -27,6 +27,8 @@ export const configValidationSchema = Joi.object<Config>({
    */
   THROTTLE_GLOBAL_TTL: Joi.number().optional().default(10000),
   THROTTLE_GLOBAL_LIMIT: Joi.number().optional().default(10),
+  THROTTLE_USERS_READ_LIMIT: Joi.number().optional().default(20), // default 20
+  THROTTLE_USERS_READ_TTL:Joi.number().optional().default(60),   // default 60 (секунд)
 
   /**
    * PostgreSQL database options
