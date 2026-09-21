@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { SelfOrPermissionGuard } from '@/core/self-or-permission/self-or-permission.guard';
 import { SelfOrPermissionAccess } from '@/core/self-or-permission/self-or-permission.types';
+import { EmailVerificationMethod } from '@/core/email-verification/email-verification-method.enum';
 
 import { UserProfileDto } from '../dto/user-profile.dto';
 import { UsersController } from '../users.controller';
@@ -12,6 +13,9 @@ describe('UsersController', () => {
 
   const usersServiceMock = {
     getUserProfile: vi.fn<UsersService['getUserProfile']>(),
+    updateUser: vi.fn<UsersService['updateUser']>(),
+    initiateEmailChange: vi.fn<UsersService['initiateEmailChange']>(),
+    confirmEmailChange: vi.fn<UsersService['confirmEmailChange']>(),
   };
 
   beforeEach(async () => {
@@ -75,6 +79,86 @@ describe('UsersController', () => {
         'user-2',
         access,
       );
+    });
+  });
+
+  describe('updateUser', () => {
+    it('delegates to UsersService.updateUser with the param, body and access context', async () => {
+      const access: SelfOrPermissionAccess = {
+        type: 'self',
+        actorUserId: 'user-1',
+        resource: 'users',
+        action: 'update',
+      };
+      const profile = { id: 'user-1', photo: 'x' } as UserProfileDto;
+      usersServiceMock.updateUser.mockResolvedValue(profile);
+
+      const result = await controller.updateUser(
+        'user-1',
+        { photo: 'x' },
+        access,
+      );
+
+      expect(usersServiceMock.updateUser).toHaveBeenCalledWith(
+        'user-1',
+        { photo: 'x' },
+        access,
+      );
+      expect(result).toBe(profile);
+    });
+  });
+
+  describe('initiateEmailChange', () => {
+    it('delegates to UsersService.initiateEmailChange with the param and newEmail', async () => {
+      const serviceResult = {
+        requiresConfirmation: true as const,
+        method: EmailVerificationMethod.OTP,
+      };
+      usersServiceMock.initiateEmailChange.mockResolvedValue(serviceResult);
+
+      const result = await controller.initiateEmailChange('user-1', {
+        newEmail: 'new@example.com',
+      });
+
+      expect(usersServiceMock.initiateEmailChange).toHaveBeenCalledWith(
+        'user-1',
+        'new@example.com',
+      );
+      expect(result).toBe(serviceResult);
+    });
+  });
+
+  describe('confirmEmailChange', () => {
+    it('delegates to UsersService.confirmEmailChange with the param and code', async () => {
+      const serviceResult = { email: 'new@example.com' };
+      usersServiceMock.confirmEmailChange.mockResolvedValue(serviceResult);
+
+      const result = await controller.confirmEmailChange('user-1', {
+        code: '123456',
+      });
+
+      expect(usersServiceMock.confirmEmailChange).toHaveBeenCalledWith(
+        'user-1',
+        '123456',
+      );
+      expect(result).toBe(serviceResult);
+    });
+  });
+
+  describe('confirmEmailChangeLink', () => {
+    it('delegates to UsersService.confirmEmailChange with the param and token', async () => {
+      const serviceResult = { email: 'new@example.com' };
+      usersServiceMock.confirmEmailChange.mockResolvedValue(serviceResult);
+
+      const result = await controller.confirmEmailChangeLink('user-1', {
+        token: 'magic-link-token',
+      });
+
+      expect(usersServiceMock.confirmEmailChange).toHaveBeenCalledWith(
+        'user-1',
+        'magic-link-token',
+      );
+      expect(result).toBe(serviceResult);
     });
   });
 });

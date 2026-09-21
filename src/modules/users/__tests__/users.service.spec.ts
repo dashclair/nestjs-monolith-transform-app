@@ -1,13 +1,23 @@
-import { Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Repository } from 'typeorm';
+import { FindOneOptions, Repository } from 'typeorm';
 
 import { SelfOrPermissionAccess } from '@/core/self-or-permission/self-or-permission.types';
 import { Role } from '@/modules/rbac/entities/role.entity';
+import { EmailVerificationMethod } from '@/core/email-verification/email-verification-method.enum';
+import { EmailVerificationPurpose } from '@/core/email-verification/email-verification-purpose.enum';
+import { EmailVerificationService } from '@/core/email-verification/email-verification.service';
 
 import { User } from '../entities/user.entity';
 import { UserProfileFieldsPolicy } from '../services/user-profile-policy.service';
+import { UserUpdateFieldsPolicy } from '../services/user-update-fields-policy.service';
 import { UsersService } from '../services/users.service';
 
 // `recordFailedLoginAttempt` is decorated with `@Transactional()`, which needs
@@ -28,9 +38,16 @@ describe('UsersService', () => {
 
   const usersRepoMock = {
     findOne: vi.fn<Repository<User>['findOne']>(),
+    findOneBy: vi.fn<Repository<User>['findOneBy']>(),
+    merge: vi.fn<Repository<User>['merge']>(),
+    save: vi.fn<Repository<User>['save']>(),
   };
   const rolesRepoMock = {
     findOneBy: vi.fn<Repository<Role>['findOneBy']>(),
+  };
+  const emailVerificationServiceMock = {
+    issueAndSend: vi.fn<EmailVerificationService['issueAndSend']>(),
+    confirm: vi.fn<EmailVerificationService['confirm']>(),
   };
 
   const buildUser = (overrides: Partial<User> = {}): User =>
@@ -65,13 +82,24 @@ describe('UsersService', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    usersRepoMock.merge.mockImplementation((entity: User, dto: Partial<User>) =>
+      Object.assign(entity, dto),
+    );
+    usersRepoMock.save.mockImplementation((entity: User) =>
+      Promise.resolve(entity),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         UserProfileFieldsPolicy,
+        UserUpdateFieldsPolicy,
         { provide: getRepositoryToken(User), useValue: usersRepoMock },
         { provide: getRepositoryToken(Role), useValue: rolesRepoMock },
+        {
+          provide: EmailVerificationService,
+          useValue: emailVerificationServiceMock,
+        },
       ],
     }).compile();
 
@@ -201,6 +229,255 @@ describe('UsersService', () => {
         targetUserId: 'user-2',
         result: 200,
       });
+    });
+  });
+
+  describe('updateUser', () => {
+    const selfUpdateAccess = (userId: string): SelfOrPermissionAccess => ({
+      type: 'self',
+      actorUserId: userId,
+      resource: 'users',
+      action: 'update',
+    });
+
+    const adminUpdateAccess = (actorUserId: string): SelfOrPermissionAccess => ({
+      type: 'permission',
+      actorUserId,
+      resource: 'users',
+      action: 'update',
+    });
+
+    it('rejects self passing email with a specific 403 hinting at /email-change, before touching the database', async () => {
+      await expect(
+        service.updateUser(
+          'user-1',
+          { email: 'new@example.com' },
+          selfUpdateAccess('user-1'),
+        ),
+      ).rejects.toThrow(
+        new ForbiddenException(
+          'Cannot change email via this endpoint — use /email-change',
+        ),
+      );
+
+      expect(usersRepoMock.findOneBy).not.toHaveBeenCalled();
+    });
+
+    it('lets self update photo without touching email', async () => {
+      const user = buildUser();
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+
+      const result = await service.updateUser(
+        'user-1',
+        { photo: 'https://example.com/new.jpg' },
+        selfUpdateAccess('user-1'),
+      );
+
+      expect(result.photo).toBe('https://example.com/new.jpg');
+      expect(result.email).toBe('user@example.com');
+    });
+
+    it('throws NotFoundException when the target user does not exist', async () => {
+      usersRepoMock.findOneBy.mockResolvedValue(null);
+
+      await expect(
+        service.updateUser(
+          'missing-id',
+          { photo: 'https://example.com/new.jpg' },
+          selfUpdateAccess('missing-id'),
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('lets an admin (via grant, not self) change email directly, without a confirmation flow', async () => {
+      const user = buildUser();
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+      usersRepoMock.findOne.mockResolvedValue(null); // no other user has that email
+
+      const result = await service.updateUser(
+        'user-1',
+        { email: 'new@example.com' },
+        adminUpdateAccess('admin-1'),
+      );
+
+      expect(result.email).toBe('new@example.com');
+      expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
+    });
+
+    it('rejects an admin email change with 409 when the email is already taken by someone else', async () => {
+      const user = buildUser();
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+      usersRepoMock.findOne.mockResolvedValue(buildUser({ id: 'other-user' }));
+
+      await expect(
+        service.updateUser(
+          'user-1',
+          { email: 'taken@example.com' },
+          adminUpdateAccess('admin-1'),
+        ),
+      ).rejects.toThrow(ConflictException);
+
+      expect(usersRepoMock.save).not.toHaveBeenCalled();
+    });
+
+    it('does not treat the user’s own current email as a conflict', async () => {
+      const user = buildUser();
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+      usersRepoMock.findOne.mockResolvedValue(user); // findByEmail resolves to the same user
+
+      const result = await service.updateUser(
+        'user-1',
+        { email: user.email },
+        adminUpdateAccess('admin-1'),
+      );
+
+      expect(result.email).toBe(user.email);
+    });
+
+    it('does not clobber untouched fields on a partial patch (regression, T-013-style bug)', async () => {
+      const user = buildUser({ photo: 'https://example.com/old.jpg' });
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+
+      const result = await service.updateUser(
+        'user-1',
+        { photo: 'https://example.com/new.jpg' },
+        selfUpdateAccess('user-1'),
+      );
+
+      expect(result.email).toBe('user@example.com');
+      expect(result.isEmailVerified).toBe(true);
+    });
+
+    it('logs users.profile.updated with only field names, not values', async () => {
+      const user = buildUser();
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+      const logSpy = vi.spyOn(Logger.prototype, 'log');
+
+      await service.updateUser(
+        'user-1',
+        { photo: 'https://example.com/new.jpg' },
+        selfUpdateAccess('user-1'),
+      );
+
+      expect(logSpy).toHaveBeenCalledWith({
+        event: 'users.profile.updated',
+        actorUserId: 'user-1',
+        targetUserId: 'user-1',
+        fields: ['photo'],
+        result: 200,
+      });
+    });
+  });
+
+  describe('initiateEmailChange', () => {
+    it('throws NotFoundException when the user does not exist', async () => {
+      usersRepoMock.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.initiateEmailChange('missing-id', 'new@example.com'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects with 400 when newEmail matches the current email', async () => {
+      usersRepoMock.findOne.mockResolvedValue(buildUser());
+
+      await expect(
+        service.initiateEmailChange('user-1', 'user@example.com'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects with 409 when newEmail is already registered, without setting pendingEmail', async () => {
+      const user = buildUser();
+      usersRepoMock.findOne.mockImplementation(
+        ({ where }: FindOneOptions<User>) =>
+          Promise.resolve(
+            'id' in (where as object) ? user : buildUser({ id: 'other-user' }),
+          ),
+      );
+
+      await expect(
+        service.initiateEmailChange('user-1', 'taken@example.com'),
+      ).rejects.toThrow(ConflictException);
+
+      expect(usersRepoMock.save).not.toHaveBeenCalled();
+    });
+
+    it('sets pendingEmail, issues a code for EMAIL_CHANGE and sends it to the new address', async () => {
+      const user = buildUser();
+      usersRepoMock.findOne.mockImplementation(({ where }: FindOneOptions<User>) =>
+        Promise.resolve('id' in (where as object) ? user : null),
+      );
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
+        method: EmailVerificationMethod.OTP,
+      });
+
+      const result = await service.initiateEmailChange(
+        'user-1',
+        'new@example.com',
+      );
+
+      expect(result).toEqual({
+        requiresConfirmation: true,
+        method: EmailVerificationMethod.OTP,
+      });
+      expect(user.pendingEmail).toBe('new@example.com');
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
+        'user-1',
+        EmailVerificationPurpose.EMAIL_CHANGE,
+        'new@example.com',
+      );
+    });
+  });
+
+  describe('confirmEmailChange', () => {
+    it('throws NotFoundException when the user does not exist', async () => {
+      usersRepoMock.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.confirmEmailChange('missing-id', '123456'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws NotFoundException when there is no pending email change', async () => {
+      usersRepoMock.findOne.mockResolvedValue(buildUser({ pendingEmail: null }));
+
+      await expect(
+        service.confirmEmailChange('user-1', '123456'),
+      ).rejects.toThrow(NotFoundException);
+      expect(emailVerificationServiceMock.confirm).not.toHaveBeenCalled();
+    });
+
+    it('promotes pendingEmail to email and clears pendingEmail on a valid code', async () => {
+      const user = buildUser({ pendingEmail: 'new@example.com' });
+      usersRepoMock.findOne.mockResolvedValue(user);
+      emailVerificationServiceMock.confirm.mockResolvedValue(undefined);
+
+      const result = await service.confirmEmailChange('user-1', '123456');
+
+      expect(emailVerificationServiceMock.confirm).toHaveBeenCalledWith(
+        'user-1',
+        '123456',
+        EmailVerificationPurpose.EMAIL_CHANGE,
+      );
+      expect(user.email).toBe('new@example.com');
+      expect(user.pendingEmail).toBeNull();
+      expect(result).toEqual({ email: 'new@example.com' });
+    });
+
+    it('does not change the email when the code is rejected', async () => {
+      const user = buildUser({ pendingEmail: 'new@example.com' });
+      usersRepoMock.findOne.mockResolvedValue(user);
+      emailVerificationServiceMock.confirm.mockRejectedValue(
+        new BadRequestException('Invalid confirmation code'),
+      );
+
+      await expect(
+        service.confirmEmailChange('user-1', 'wrong-code'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(user.email).toBe('user@example.com');
+      expect(user.pendingEmail).toBe('new@example.com');
+      expect(usersRepoMock.save).not.toHaveBeenCalled();
     });
   });
 });
