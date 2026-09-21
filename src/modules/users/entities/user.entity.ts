@@ -41,6 +41,9 @@ export class User {
   @Column({ type: 'boolean', default: false })
   isEmailVerified: boolean;
 
+  @Column({ type: 'varchar', nullable: true })
+  pendingEmail: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
