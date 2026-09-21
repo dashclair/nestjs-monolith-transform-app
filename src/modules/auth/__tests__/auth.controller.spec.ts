@@ -5,7 +5,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ConfigService } from '@/core/config/config.service';
 
 import { AuthController } from '../auth.controller';
-import { EmailVerificationMethod } from '../email-verification-method.enum';
+import { EmailVerificationMethod } from '../../../core/email-verification/email-verification-method.enum';
 import { AuthService } from '../services/auth.service';
 
 describe('AuthController', () => {

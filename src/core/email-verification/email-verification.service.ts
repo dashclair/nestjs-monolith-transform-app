@@ -12,11 +12,23 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Propagation, Transactional } from 'typeorm-transactional';
 import { Repository } from 'typeorm';
 
+import { Config } from '@/core/config/config.types';
 import { ConfigService } from '@/core/config/config.service';
+import { MailerService } from '@/core/mailer/mailer.service';
 
-import { EmailVerificationMethod } from '../email-verification-method.enum';
-import { EmailVerification } from '../entities/email-verification.entity';
-import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
+import { EmailVerificationMethod } from '@/core/email-verification/email-verification-method.enum';
+import { EmailVerification } from '@/modules/auth/entities/email-verification.entity';
+import { EmailVerificationPurpose } from '@/core/email-verification/email-verification-purpose.enum';
+
+const CONFIRMATION_METHOD_CONFIG_KEY: Record<
+  EmailVerificationPurpose,
+  keyof Config
+> = {
+  [EmailVerificationPurpose.REGISTER]: 'AUTH_REGISTER_CONFIRMATION_METHOD',
+  [EmailVerificationPurpose.LOGIN]: 'AUTH_LOGIN_CONFIRMATION_METHOD',
+  [EmailVerificationPurpose.EMAIL_CHANGE]:
+    'AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD',
+};
 
 @Injectable()
 export class EmailVerificationService {
@@ -26,19 +38,39 @@ export class EmailVerificationService {
     @InjectRepository(EmailVerification)
     private readonly repo: Repository<EmailVerification>,
     private readonly configService: ConfigService,
+    private readonly mailerService: MailerService,
   ) {}
+
+  async issueAndSend(
+    userId: string,
+    purpose: EmailVerificationPurpose,
+    targetEmail: string,
+  ): Promise<{ method: EmailVerificationMethod }> {
+    const { method, plaintext } = await this.issue(userId, purpose);
+
+    const sent = await this.mailerService.sendMail({
+      to: targetEmail,
+      subject: 'Confirm your email',
+      html: `Code: ${plaintext}`,
+    });
+    this.logger.log({
+      event: 'auth.email_verification.sent',
+      userId,
+      purpose,
+      sent,
+    });
+
+    return { method };
+  }
 
   async issue(
     userId: string,
     purpose: EmailVerificationPurpose,
   ): Promise<{ method: EmailVerificationMethod; plaintext: string }> {
-    const methodConfigKey =
-      purpose === EmailVerificationPurpose.LOGIN
-        ? 'AUTH_LOGIN_CONFIRMATION_METHOD'
-        : 'AUTH_REGISTER_CONFIRMATION_METHOD';
     const method = this.configService.get(
-      methodConfigKey,
+      CONFIRMATION_METHOD_CONFIG_KEY[purpose],
     ) as EmailVerificationMethod;
+
     const plaintext =
       method === EmailVerificationMethod.OTP
         ? this.generateOtp()
