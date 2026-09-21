@@ -59,6 +59,11 @@ export interface Config {
   AUTH_REGISTER_CONFIRMATION_METHOD?: 'otp' | 'magic_link';
 
   /**
+   * Email change confirmation
+   */
+  AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD?: 'otp' | 'magic_link';
+
+  /**
    * Email verification (OTP / magic link) parameters
    */
   EMAIL_VERIFICATION_TTL_MINUTES?: number;

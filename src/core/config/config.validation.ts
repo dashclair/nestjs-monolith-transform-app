@@ -70,6 +70,11 @@ export const configValidationSchema = Joi.object<Config>({
     .optional()
     .default('otp'),
 
+  AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD: Joi.string()
+    .valid('otp', 'magic_link')
+    .optional()
+    .default('otp'),
+
   EMAIL_VERIFICATION_TTL_MINUTES: Joi.number().optional().default(10),
   EMAIL_VERIFICATION_MAX_ATTEMPTS: Joi.number().optional().default(5),
   EMAIL_VERIFICATION_RESEND_INTERVAL_SECONDS: Joi.number()
