@@ -63,6 +63,8 @@ export interface Config {
    */
   AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD?: 'otp' | 'magic_link';
 
+  DELETE_ACCOUNT_CONFIRMATION_METHOD?: 'otp' | 'magic_link';
+
   /**
    * Email verification (OTP / magic link) parameters
    */

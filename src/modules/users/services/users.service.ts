@@ -38,6 +38,31 @@ export class UsersService {
     return this.repo.findOne({ where: { id }, relations });
   }
 
+  private generateDeletedEmail(userId: string): string {
+    return `deleted-${userId}@deleted.local`;
+  }
+
+  /**
+   * Fixed field set per T-017 decision #5 — only PII fields are touched.
+   * `roles` is intentionally left alone (deletedAt already blocks access via
+   * JwtStrategy; revoking roles separately buys nothing), and `id`/`createdAt`
+   * are never touched (referential integrity for future Epic 2 entities).
+   */
+  private async anonymizeUser(user: User): Promise<void> {
+    user.email = this.generateDeletedEmail(user.id);
+    user.photo = null;
+    user.passwordHash = '';
+    user.pendingEmail = null;
+    user.isEmailVerified = false;
+
+    user.deletedAt = new Date();
+
+    // invalidate existing JWTs
+    user.tokenVersion += 1;
+
+    await this.repo.save(user);
+  }
+
   async create(data: {
     email: string;
     passwordHash: string;
@@ -262,6 +287,109 @@ export class UsersService {
     });
 
     return { email: user.email };
+  }
+
+  @Transactional()
+  async requestDelete(
+    userId: string,
+    reason?: string,
+  ): Promise<{ requiresConfirmation: true; method: EmailVerificationMethod }> {
+    const user = await this.findById(userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Unreachable in practice — once deletedAt is set, JwtStrategy rejects
+    // this user's access token before a request can even reach here (T-017
+    // decision #6). Kept as defense-in-depth per the ticket's error table.
+    if (user.deletedAt) {
+      throw new ConflictException('User already deleted');
+    }
+
+    const { method } = await this.emailVerificationService.issueAndSend(
+      user.id,
+      EmailVerificationPurpose.DELETE_ACCOUNT,
+      user.email,
+    );
+
+    this.logger.log({
+      event: 'users.delete.requested',
+      userId: user.id,
+      reason,
+    });
+
+    return { requiresConfirmation: true, method };
+  }
+
+  @Transactional()
+  async confirmDelete(userId: string, code: string): Promise<{ deleted: true }> {
+    const user = await this.findById(userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    try {
+      await this.emailVerificationService.confirm(
+        user.id,
+        code,
+        EmailVerificationPurpose.DELETE_ACCOUNT,
+      );
+    } catch (error) {
+      this.logger.warn({
+        event: 'users.delete.failed',
+        userId: user.id,
+      });
+      throw error;
+    }
+
+    await this.anonymizeUser(user);
+
+    this.logger.log({
+      event: 'users.delete.confirmed',
+      userId: user.id,
+    });
+
+    return { deleted: true };
+  }
+
+  /**
+   * Permission-gated delete (T-017 decision #2) — reachable by any role
+   * holding `users:delete`, not only "admin" specifically. No email
+   * confirmation, no SelfOrPermission self-fallback: self hitting this
+   * directly on their own id is rejected before the DB lookup.
+   */
+  @Transactional()
+  async deleteUserByPermission(
+    targetUserId: string,
+    actorUserId: string,
+  ): Promise<{ deleted: true }> {
+    if (actorUserId === targetUserId) {
+      throw new ForbiddenException(
+        'Use POST /users/:id/delete-request to delete your own account',
+      );
+    }
+
+    const user = await this.findById(targetUserId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.deletedAt) {
+      throw new ConflictException('User already deleted');
+    }
+
+    await this.anonymizeUser(user);
+
+    this.logger.log({
+      event: 'users.delete.admin_executed',
+      actorUserId,
+      targetUserId: user.id,
+    });
+
+    return { deleted: true };
   }
 
   /**

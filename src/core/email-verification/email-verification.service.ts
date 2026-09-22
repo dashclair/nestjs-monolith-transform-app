@@ -28,7 +28,21 @@ const CONFIRMATION_METHOD_CONFIG_KEY: Record<
   [EmailVerificationPurpose.LOGIN]: 'AUTH_LOGIN_CONFIRMATION_METHOD',
   [EmailVerificationPurpose.EMAIL_CHANGE]:
     'AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD',
+  [EmailVerificationPurpose.DELETE_ACCOUNT]: 'DELETE_ACCOUNT_CONFIRMATION_METHOD',
 };
+
+// Per-purpose wording for the "nothing to confirm" 404 — callers each have
+// their own vocabulary for what a pending verification represents (T-017
+// wants "No pending deletion request", not the generic email-change phrasing).
+const NO_PENDING_VERIFICATION_MESSAGE: Record<EmailVerificationPurpose, string> =
+  {
+    [EmailVerificationPurpose.REGISTER]:
+      'No pending confirmation for this email',
+    [EmailVerificationPurpose.LOGIN]: 'No pending confirmation for this email',
+    [EmailVerificationPurpose.EMAIL_CHANGE]:
+      'No pending confirmation for this email',
+    [EmailVerificationPurpose.DELETE_ACCOUNT]: 'No pending deletion request',
+  };
 
 @Injectable()
 export class EmailVerificationService {
@@ -39,7 +53,7 @@ export class EmailVerificationService {
     private readonly repo: Repository<EmailVerification>,
     private readonly configService: ConfigService,
     private readonly mailerService: MailerService,
-  ) {}
+  ) { }
 
   async issueAndSend(
     userId: string,
@@ -102,7 +116,7 @@ export class EmailVerificationService {
   ): Promise<void> {
     const verification = await this.repo.findOneBy({ userId, purpose });
     if (!verification || verification.consumedAt) {
-      throw new NotFoundException('No pending confirmation for this email');
+      throw new NotFoundException(NO_PENDING_VERIFICATION_MESSAGE[purpose]);
     }
 
     const maxAttempts = Number(
@@ -156,7 +170,7 @@ export class EmailVerificationService {
     const verification = await this.repo.findOneBy({ userId, purpose });
 
     if (!verification || verification.consumedAt) {
-      throw new NotFoundException('No pending confirmation for this email');
+      throw new NotFoundException(NO_PENDING_VERIFICATION_MESSAGE[purpose]);
     }
     if (!verification.lastSentAt) return true;
 

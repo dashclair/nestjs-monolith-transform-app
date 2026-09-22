@@ -38,6 +38,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User not found');
     }
 
+    if (user?.deletedAt) {
+      throw new UnauthorizedException('User not found')
+    }
+
     if (payload.tokenVersion !== user.tokenVersion) {
       throw new UnauthorizedException('Token has been revoked');
     }

@@ -58,4 +58,10 @@ export class User {
 
   @Column({ type: 'int', default: 0 })
   tokenVersion: number;
+
+  @Column({
+    type: 'timestamptz',
+    nullable: true,
+  })
+  deletedAt: Date | null;
 }
