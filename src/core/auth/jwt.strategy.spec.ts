@@ -115,7 +115,7 @@ describe('JwtStrategy.validate', () => {
     ).rejects.toThrow('Token has been revoked');
   });
 
-  it('rejects a soft-deleted user even when tokenVersion still matches (T-017 regression: tokenVersion alone is not enough)', async () => {
+  it('rejects a soft-deleted user even when tokenVersion still matches (regression: tokenVersion alone is not enough)', async () => {
     usersServiceMock.findById.mockResolvedValue({
       id: 'user-1',
       tokenVersion: 0,

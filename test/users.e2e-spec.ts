@@ -179,8 +179,7 @@ describe('Users profile & email change (e2e)', () => {
     await createVerifiedUser(GRANT_TARGET_EMAIL);
 
     // Give a plain (non-admin) role an explicit `users:update` grant, to
-    // prove PATCH honors the permission — not a hardcoded 'admin' role name
-    // (T-014 decision #8, re-checked here for the T-016 endpoints).
+    // prove PATCH honors the permission — not a hardcoded 'admin' role name.
     const adminToken = await tokenFor(ADMIN_EMAIL);
     const roleRes = await request(app.getHttpServer())
       .post('/admin/rbac/roles')

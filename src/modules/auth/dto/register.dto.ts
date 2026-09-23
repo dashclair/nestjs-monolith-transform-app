@@ -9,8 +9,7 @@ export class RegisterDto {
 
   // Mirrors the default AUTH_PASSWORD_MIN_LENGTH (8). class-validator
   // decorators are static and can't read ConfigService, so this doesn't
-  // follow the config value if it's changed — see IMPLEMENTATION-LOG.md,
-  // T-011 Phase 4.
+  // follow the config value if it's changed.
   @IsString()
   @MinLength(8)
   password: string;

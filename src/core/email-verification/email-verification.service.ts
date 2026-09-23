@@ -32,8 +32,9 @@ const CONFIRMATION_METHOD_CONFIG_KEY: Record<
 };
 
 // Per-purpose wording for the "nothing to confirm" 404 — callers each have
-// their own vocabulary for what a pending verification represents (T-017
-// wants "No pending deletion request", not the generic email-change phrasing).
+// their own vocabulary for what a pending verification represents (account
+// deletion wants "No pending deletion request", not the generic email-change
+// phrasing).
 const NO_PENDING_VERIFICATION_MESSAGE: Record<EmailVerificationPurpose, string> =
   {
     [EmailVerificationPurpose.REGISTER]:

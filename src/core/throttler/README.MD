@@ -23,7 +23,7 @@ No `name` is set on the throttler config, so `@nestjs/throttler` uses the implic
 
 ## Stricter limits on specific routes
 
-Use `@Throttle()` to override the default limit/ttl for a route or controller. Applied today on [`AuthController`](../../modules/auth/auth.controller.ts) as brute-force protection (the controller only has placeholder `login`/`register` handlers for now — real auth logic lands in a later ticket):
+Use `@Throttle()` to override the default limit/ttl for a route or controller. Applied on [`AuthController`](../../modules/auth/auth.controller.ts) as brute-force protection:
 
 ```typescript
 @Throttle({ default: { limit: 5, ttl: seconds(60) } })

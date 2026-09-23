@@ -59,7 +59,7 @@ describe('ListUsersQueryDto', () => {
     ['limit=0', { limit: '0' }],
     ['non-numeric limit', { limit: 'abc' }],
     ['fractional limit', { limit: '1.5' }],
-    ['status=blocked (not implemented, decision #2)', { status: 'blocked' }],
+    ['status=blocked (not implemented)', { status: 'blocked' }],
     ['unknown sort field', { sort: 'last_login' }],
     ['unknown order', { order: 'random' }],
     ['q longer than 255 chars', { q: 'a'.repeat(256) }],

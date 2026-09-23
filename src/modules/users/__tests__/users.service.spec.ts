@@ -336,7 +336,7 @@ describe('UsersService', () => {
       expect(result.email).toBe(user.email);
     });
 
-    it('does not clobber untouched fields on a partial patch (regression, T-013-style bug)', async () => {
+    it('does not clobber untouched fields on a partial patch (regression)', async () => {
       const user = buildUser({ photo: 'https://example.com/old.jpg' });
       usersRepoMock.findOneBy.mockResolvedValue(user);
 
