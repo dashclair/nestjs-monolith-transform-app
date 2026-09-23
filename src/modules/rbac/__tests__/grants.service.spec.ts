@@ -198,16 +198,16 @@ describe('GrantsService', () => {
       expect(rbacConfigServiceMock.reload).toHaveBeenCalledTimes(1);
     });
 
-    it('clears the actions restriction back to null (all actions) when an empty update is sent', async () => {
+    it('clears the actions restriction (all actions) when an empty actions array is sent', async () => {
       grantsRepoMock.findOne.mockResolvedValue(
         buildGrant({ actions: ['create'] }),
       );
-      grantsRepoMock.save.mockResolvedValue(buildGrant({ actions: null }));
+      grantsRepoMock.save.mockResolvedValue(buildGrant({ actions: [] }));
 
-      await service.update('grant-id', {}, 'actor-id');
+      await service.update('grant-id', { actions: [] }, 'actor-id');
 
       expect(grantsRepoMock.save).toHaveBeenCalledWith(
-        expect.objectContaining({ actions: null }),
+        expect.objectContaining({ actions: [] }),
       );
     });
   });
