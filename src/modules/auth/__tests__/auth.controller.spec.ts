@@ -34,11 +34,11 @@ describe('AuthController', () => {
     }),
   };
 
-  function buildResponse(): FastifyReply {
+  function buildResponse(status = vi.fn()): FastifyReply {
     return {
       setCookie: vi.fn(),
       clearCookie: vi.fn(),
-      status: vi.fn(),
+      status,
     } as unknown as FastifyReply;
   }
 
@@ -239,7 +239,8 @@ describe('AuthController', () => {
         email: 'user@example.com',
         createdAt: new Date('2026-09-09T10:00:00.000Z'),
       };
-      const response = buildResponse();
+      const status = vi.fn();
+      const response = buildResponse(status);
 
       authServiceMock.register.mockResolvedValue(serviceResult);
 
@@ -255,7 +256,7 @@ describe('AuthController', () => {
         'user@example.com',
         'password123',
       );
-      expect(response.status).toHaveBeenCalledWith(HttpStatus.CREATED);
+      expect(status).toHaveBeenCalledWith(HttpStatus.CREATED);
       expect(result).toBe(serviceResult);
     });
 
@@ -265,7 +266,8 @@ describe('AuthController', () => {
         method: EmailVerificationMethod.OTP,
         email: 'user@example.com',
       };
-      const response = buildResponse();
+      const status = vi.fn();
+      const response = buildResponse(status);
 
       authServiceMock.register.mockResolvedValue(serviceResult);
 
@@ -281,7 +283,7 @@ describe('AuthController', () => {
         'user@example.com',
         'password123',
       );
-      expect(response.status).toHaveBeenCalledWith(HttpStatus.OK);
+      expect(status).toHaveBeenCalledWith(HttpStatus.OK);
       expect(result).toBe(serviceResult);
     });
   });

@@ -24,14 +24,14 @@ export interface Config {
   THROTTLE_GLOBAL_TTL?: number;
   THROTTLE_GLOBAL_LIMIT?: number;
   THROTTLE_USERS_READ_LIMIT?: number; // default 20
-  THROTTLE_USERS_READ_TTL?: number;   // default 60
+  THROTTLE_USERS_READ_TTL?: number; // default 60
   THROTTLE_USERS_LIST_LIMIT?: number; // default 20
-  THROTTLE_USERS_LIST_TTL?: number;   // default 60 (секунд)
+  THROTTLE_USERS_LIST_TTL?: number; // default 60 (секунд)
 
   /**
    * Users list (GET /users) pagination
    */
-  USERS_LIST_MAX_LIMIT?: number;     // default 100 — верхняя граница `limit`
+  USERS_LIST_MAX_LIMIT?: number; // default 100 — верхняя граница `limit`
   USERS_LIST_DEFAULT_LIMIT?: number; // default 20, не больше USERS_LIST_MAX_LIMIT
 
   /**

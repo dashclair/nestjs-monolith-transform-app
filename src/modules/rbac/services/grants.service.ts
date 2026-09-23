@@ -31,7 +31,10 @@ export class GrantsService {
     return this.grantsRepo.find({ relations: ['role', 'permission'] });
   }
 
-  private assertActionsSubset(actions: string[] | undefined, permission: Permission): void {
+  private assertActionsSubset(
+    actions: string[] | undefined,
+    permission: Permission,
+  ): void {
     if (!actions || actions.length === 0) return;
     const hasInvalid = actions.some((a) => !permission.actions.includes(a));
     if (hasInvalid) {
@@ -43,7 +46,9 @@ export class GrantsService {
     const role = await this.rolesRepo.findOneBy({ id: dto.roleId });
     if (!role) throw new NotFoundException('Role not found');
 
-    const permission = await this.permissionsRepo.findOneBy({ id: dto.permissionId });
+    const permission = await this.permissionsRepo.findOneBy({
+      id: dto.permissionId,
+    });
     if (!permission) throw new NotFoundException('Permission not found');
 
     this.assertActionsSubset(dto.actions, permission);
@@ -53,7 +58,9 @@ export class GrantsService {
       permissionId: dto.permissionId,
     });
     if (duplicate) {
-      throw new ConflictException('Grant already exists for this role and permission');
+      throw new ConflictException(
+        'Grant already exists for this role and permission',
+      );
     }
 
     const grant = await this.grantsRepo.save(
@@ -64,11 +71,19 @@ export class GrantsService {
       }),
     );
     await this.rbacConfigService.reload();
-    this.logger.log({ event: 'rbac.grant.created', actorUserId, grantId: grant.id });
+    this.logger.log({
+      event: 'rbac.grant.created',
+      actorUserId,
+      grantId: grant.id,
+    });
     return grant;
   }
 
-  async update(grantId: string, dto: UpdateGrantDto, actorUserId: string): Promise<Grant> {
+  async update(
+    grantId: string,
+    dto: UpdateGrantDto,
+    actorUserId: string,
+  ): Promise<Grant> {
     const grant = await this.grantsRepo.findOne({
       where: { id: grantId },
       relations: ['permission'],

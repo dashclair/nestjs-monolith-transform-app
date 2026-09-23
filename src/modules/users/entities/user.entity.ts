@@ -24,7 +24,7 @@ export class User {
   @Column({
     type: 'varchar',
     nullable: true,
-    default: null
+    default: null,
   })
   photo?: string | null;
 
@@ -46,7 +46,7 @@ export class User {
   @Column({ type: 'varchar', nullable: true })
   pendingEmail: string | null;
 
-  @CreateDateColumn({ type: 'timestamptz',  precision: 3 })
+  @CreateDateColumn({ type: 'timestamptz', precision: 3 })
   createdAt: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })

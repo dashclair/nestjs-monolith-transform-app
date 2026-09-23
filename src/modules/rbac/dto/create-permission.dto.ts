@@ -1,4 +1,10 @@
-import { ArrayMinSize, ArrayUnique, IsArray, IsString, MinLength } from 'class-validator';
+import {
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
+  IsString,
+  MinLength,
+} from 'class-validator';
 
 export class CreatePermissionDto {
   @IsString()

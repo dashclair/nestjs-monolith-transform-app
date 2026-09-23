@@ -1,12 +1,10 @@
-import { SelfOrPermissionAccess } from "@/modules/rbac";
-import { Injectable } from "@nestjs/common";
-import { UpdateUserDto } from "../dto/update-user.dto";
+import { SelfOrPermissionAccess } from '@/modules/rbac';
+import { Injectable } from '@nestjs/common';
+import { UpdateUserDto } from '../dto/update-user.dto';
 
 @Injectable()
 export class UserUpdateFieldsPolicy {
-  getAllowedFields(
-    access: SelfOrPermissionAccess,
-  ): Array<keyof UpdateUserDto> {
+  getAllowedFields(access: SelfOrPermissionAccess): Array<keyof UpdateUserDto> {
     if (access.type === 'self') {
       return [
         'photo',

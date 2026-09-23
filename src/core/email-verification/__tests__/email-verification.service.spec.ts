@@ -174,7 +174,9 @@ describe('EmailVerificationService', () => {
       expect(method).toBe(EmailVerificationMethod.MAGIC_LINK);
       expect(plaintext).toMatch(/^[0-9a-f]{64}$/);
       expect(repoMock.save).toHaveBeenCalledWith(
-        expect.objectContaining({ purpose: EmailVerificationPurpose.EMAIL_CHANGE }),
+        expect.objectContaining({
+          purpose: EmailVerificationPurpose.EMAIL_CHANGE,
+        }),
       );
 
       configValues.AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD = 'otp';
@@ -225,7 +227,9 @@ describe('EmailVerificationService', () => {
         expect.objectContaining({ to: 'new-address@example.com' }),
       );
       expect(repoMock.save).toHaveBeenCalledWith(
-        expect.objectContaining({ purpose: EmailVerificationPurpose.EMAIL_CHANGE }),
+        expect.objectContaining({
+          purpose: EmailVerificationPurpose.EMAIL_CHANGE,
+        }),
       );
     });
   });

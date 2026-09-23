@@ -1,4 +1,11 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Propagation, Transactional } from 'typeorm-transactional';
 import { Repository } from 'typeorm';
@@ -20,7 +27,7 @@ import { EmailVerificationMethod } from '@/core/email-verification/email-verific
 
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name)
+  private readonly logger = new Logger(UsersService.name);
   constructor(
     @InjectRepository(User) private readonly repo: Repository<User>,
     @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
@@ -28,7 +35,7 @@ export class UsersService {
     private readonly userProfileFieldsPolicy: UserProfileFieldsPolicy,
     private readonly userUpdateFieldsPolicy: UserUpdateFieldsPolicy,
     private readonly emailVerificationService: EmailVerificationService,
-  ) { }
+  ) {}
 
   findByEmail(email: string, relations: string[] = []): Promise<User | null> {
     return this.repo.findOne({ where: { email }, relations });
@@ -87,8 +94,7 @@ export class UsersService {
     userId: string,
     access: SelfOrPermissionAccess,
   ): Promise<UserProfileDto> {
-    const allowedFields =
-      this.userProfileFieldsPolicy.getAllowedFields(access);
+    const allowedFields = this.userProfileFieldsPolicy.getAllowedFields(access);
 
     const isAllowed = (field: UserProfileField) =>
       allowedFields.includes(field);
@@ -152,14 +158,13 @@ export class UsersService {
   async updateUser(
     userId: string,
     dto: UpdateUserDto,
-    access: SelfOrPermissionAccess) {
+    access: SelfOrPermissionAccess,
+  ) {
+    const allowedFields = this.userUpdateFieldsPolicy.getAllowedFields(access);
 
-    const allowedFields =
-      this.userUpdateFieldsPolicy.getAllowedFields(access);
-
-    const requestedFields = (Object.keys(dto) as Array<keyof UpdateUserDto>).filter(
-      (field) => dto[field] !== undefined,
-    );
+    const requestedFields = (
+      Object.keys(dto) as Array<keyof UpdateUserDto>
+    ).filter((field) => dto[field] !== undefined);
 
     const forbiddenFields = requestedFields.filter(
       (field) => !allowedFields.includes(field),
@@ -308,7 +313,10 @@ export class UsersService {
   }
 
   @Transactional()
-  async confirmDelete(userId: string, code: string): Promise<{ deleted: true }> {
+  async confirmDelete(
+    userId: string,
+    code: string,
+  ): Promise<{ deleted: true }> {
     const user = await this.findById(userId);
 
     if (!user) {
@@ -344,7 +352,7 @@ export class UsersService {
     targetUserId: string,
     actorUserId: string,
   ): Promise<{ deleted: true }> {
-    if (actorUserId === targetUserId) {
+    if (actorUserId.toLowerCase() === targetUserId.toLowerCase()) {
       throw new ForbiddenException(
         'Use POST /users/:id/delete-request to delete your own account',
       );

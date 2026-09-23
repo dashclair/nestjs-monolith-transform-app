@@ -1,4 +1,15 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Put,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { FastifyRequest } from 'fastify';
 
@@ -16,7 +27,7 @@ type AuthenticatedRequest = FastifyRequest & { user: RequestUser };
 @UseGuards(PermissionsGuard)
 @Controller('admin/rbac/permissions')
 export class PermissionsController {
-  constructor(private readonly permissionsService:  PermissionsService) {}
+  constructor(private readonly permissionsService: PermissionsService) {}
 
   @RequirePermission('rbac', 'read')
   @Get()

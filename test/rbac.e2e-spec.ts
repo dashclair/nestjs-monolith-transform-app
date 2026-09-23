@@ -1,6 +1,9 @@
 import fastifyCookie from '@fastify/cookie';
 import { ValidationPipe } from '@nestjs/common';
-import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
+import {
+  FastifyAdapter,
+  NestFastifyApplication,
+} from '@nestjs/platform-fastify';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
@@ -59,7 +62,10 @@ describe('RBAC (e2e)', () => {
     return extractCookieValue(res, 'access_token');
   };
 
-  const createVerifiedUser = async (email: string, roleNames: string[] = []) => {
+  const createVerifiedUser = async (
+    email: string,
+    roleNames: string[] = [],
+  ) => {
     const passwordHash = await new PasswordService().hash(PASSWORD);
     const roles = roleNames.length
       ? await rolesRepo.findBy({ name: In(roleNames) })
@@ -164,8 +170,9 @@ describe('RBAC (e2e)', () => {
         .send({ name: ROLE_NAME, description: 'e2e fixture' })
         .expect(201);
 
-      roleId = res.body.id;
-      expect(res.body.name).toBe(ROLE_NAME);
+      const body = res.body as { id: string; name: string };
+      roleId = body.id;
+      expect(body.name).toBe(ROLE_NAME);
     });
 
     it('rejects a duplicate role name with 409', async () => {
@@ -180,11 +187,15 @@ describe('RBAC (e2e)', () => {
       const res = await request(app.getHttpServer())
         .post('/admin/rbac/permissions')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ name: PERMISSION_NAME, actions: ['create', 'update', 'delete'] })
+        .send({
+          name: PERMISSION_NAME,
+          actions: ['create', 'update', 'delete'],
+        })
         .expect(201);
 
-      permissionId = res.body.id;
-      expect(res.body.actions).toEqual(['create', 'update', 'delete']);
+      const body = res.body as { id: string; actions: string[] };
+      permissionId = body.id;
+      expect(body.actions).toEqual(['create', 'update', 'delete']);
     });
 
     it('rejects a grant whose actions are not a subset of the permission’s actions', async () => {
@@ -255,22 +266,28 @@ describe('RBAC (e2e)', () => {
         .get('/admin/rbac/roles')
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
-      const role = rolesRes.body.find((r: { name: string }) => r.name === ROLE_NAME);
+      const role = (rolesRes.body as { id: string; name: string }[]).find(
+        (r: { name: string }) => r.name === ROLE_NAME,
+      );
 
       const permissionsRes = await request(app.getHttpServer())
         .get('/admin/rbac/permissions')
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
-      const rbacPermission = permissionsRes.body.find(
-        (p: { name: string }) => p.name === 'rbac',
-      );
+      const rbacPermission = (
+        permissionsRes.body as { id: string; name: string }[]
+      ).find((p: { name: string }) => p.name === 'rbac');
 
       const grantRes = await request(app.getHttpServer())
         .post('/admin/rbac/grants')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ roleId: role.id, permissionId: rbacPermission.id, actions: ['read'] })
+        .send({
+          roleId: role!.id,
+          permissionId: rbacPermission!.id,
+          actions: ['read'],
+        })
         .expect(201);
-      grantId = grantRes.body.id;
+      grantId = (grantRes.body as { id: string }).id;
 
       await createVerifiedUser(CACHE_USER_EMAIL, [ROLE_NAME]);
       cacheUserToken = await login(CACHE_USER_EMAIL);

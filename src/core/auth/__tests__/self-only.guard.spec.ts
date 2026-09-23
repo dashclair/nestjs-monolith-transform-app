@@ -29,7 +29,10 @@ describe('SelfOnlyGuard', () => {
     vi.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [SelfOnlyGuard, { provide: Reflector, useValue: reflectorMock }],
+      providers: [
+        SelfOnlyGuard,
+        { provide: Reflector, useValue: reflectorMock },
+      ],
     }).compile();
 
     guard = module.get(SelfOnlyGuard);

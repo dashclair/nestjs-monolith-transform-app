@@ -242,7 +242,9 @@ describe('UsersService', () => {
       action: 'update',
     });
 
-    const adminUpdateAccess = (actorUserId: string): SelfOrPermissionAccess => ({
+    const adminUpdateAccess = (
+      actorUserId: string,
+    ): SelfOrPermissionAccess => ({
       type: 'permission',
       actorUserId,
       resource: 'users',
@@ -406,8 +408,9 @@ describe('UsersService', () => {
 
     it('sets pendingEmail, issues a code for EMAIL_CHANGE and sends it to the new address', async () => {
       const user = buildUser();
-      usersRepoMock.findOne.mockImplementation(({ where }: FindOneOptions<User>) =>
-        Promise.resolve('id' in (where as object) ? user : null),
+      usersRepoMock.findOne.mockImplementation(
+        ({ where }: FindOneOptions<User>) =>
+          Promise.resolve('id' in (where as object) ? user : null),
       );
       emailVerificationServiceMock.issueAndSend.mockResolvedValue({
         method: EmailVerificationMethod.OTP,
@@ -441,7 +444,9 @@ describe('UsersService', () => {
     });
 
     it('throws NotFoundException when there is no pending email change', async () => {
-      usersRepoMock.findOne.mockResolvedValue(buildUser({ pendingEmail: null }));
+      usersRepoMock.findOne.mockResolvedValue(
+        buildUser({ pendingEmail: null }),
+      );
 
       await expect(
         service.confirmEmailChange('user-1', '123456'),

@@ -25,7 +25,6 @@ const SORT_COLUMNS = {
   [UserSortField.Email]: 'user.email',
 } satisfies Record<UserSortField, string>;
 
-
 @Injectable()
 export class UsersListService {
   private readonly logger = new Logger(UsersListService.name);
@@ -58,8 +57,6 @@ export class UsersListService {
 
     // limit + 1 — the extra row only signals that a next page exists
     const users = await qb.take(limit + 1).getMany();
-
-    console.log('users', users)
 
     const hasNextPage = users.length > limit;
 

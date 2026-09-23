@@ -553,14 +553,15 @@ describe('AuthService', () => {
       ({ clearCookie: vi.fn() }) as unknown as FastifyReply;
 
     it('clears both auth cookies regardless of the access token', async () => {
-      const response = buildResponse();
+      const clearCookie = vi.fn();
+      const response = { clearCookie } as unknown as FastifyReply;
 
       await service.logout(response);
 
-      expect(response.clearCookie).toHaveBeenCalledWith('access_token', {
+      expect(clearCookie).toHaveBeenCalledWith('access_token', {
         path: '/',
       });
-      expect(response.clearCookie).toHaveBeenCalledWith('refresh_token', {
+      expect(clearCookie).toHaveBeenCalledWith('refresh_token', {
         path: '/auth/refresh',
       });
     });

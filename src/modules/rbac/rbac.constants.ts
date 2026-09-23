@@ -1,1 +1,1 @@
-export const DEFAULT_ROLE_NAME = 'user'
+export const DEFAULT_ROLE_NAME = 'user';

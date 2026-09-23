@@ -103,8 +103,12 @@ describe('RolesService', () => {
     });
 
     it('does not check for duplicates when the name is left unchanged', async () => {
-      rolesRepoMock.findOneBy.mockResolvedValueOnce(buildRole({ name: 'editor' }));
-      rolesRepoMock.save.mockResolvedValue(buildRole({ description: 'updated' }));
+      rolesRepoMock.findOneBy.mockResolvedValueOnce(
+        buildRole({ name: 'editor' }),
+      );
+      rolesRepoMock.save.mockResolvedValue(
+        buildRole({ description: 'updated' }),
+      );
 
       await service.update('role-id', { description: 'updated' }, 'actor-id');
 
