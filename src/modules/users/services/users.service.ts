@@ -43,7 +43,6 @@ export class UsersService {
   }
 
   /**
-   * Fixed field set per T-017 decision #5 — only PII fields are touched.
    * `roles` is intentionally left alone (deletedAt already blocks access via
    * JwtStrategy; revoking roles separately buys nothing), and `id`/`createdAt`
    * are never touched (referential integrity for future Epic 2 entities).
@@ -54,10 +53,7 @@ export class UsersService {
     user.passwordHash = '';
     user.pendingEmail = null;
     user.isEmailVerified = false;
-
     user.deletedAt = new Date();
-
-    // invalidate existing JWTs
     user.tokenVersion += 1;
 
     await this.repo.save(user);
@@ -161,14 +157,6 @@ export class UsersService {
     const allowedFields =
       this.userUpdateFieldsPolicy.getAllowedFields(access);
 
-
-    // `dto` went through the global `ValidationPipe`'s `plainToInstance()`,
-    // which sets every field the DTO class declares as an own property —
-    // including ones the client never sent, as `undefined` — so
-    // `Object.keys(dto)` alone would always report every declared field as
-    // "requested". Filtering by value here is what actually distinguishes
-    // "sent" from "not sent" (same class of bug as the T-013 fix, just one
-    // step upstream of the Object.assign/merge case that fix addressed).
     const requestedFields = (Object.keys(dto) as Array<keyof UpdateUserDto>).filter(
       (field) => dto[field] !== undefined,
     );
@@ -300,9 +288,6 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    // Unreachable in practice — once deletedAt is set, JwtStrategy rejects
-    // this user's access token before a request can even reach here (T-017
-    // decision #6). Kept as defense-in-depth per the ticket's error table.
     if (user.deletedAt) {
       throw new ConflictException('User already deleted');
     }
@@ -354,12 +339,6 @@ export class UsersService {
     return { deleted: true };
   }
 
-  /**
-   * Permission-gated delete (T-017 decision #2) — reachable by any role
-   * holding `users:delete`, not only "admin" specifically. No email
-   * confirmation, no SelfOrPermission self-fallback: self hitting this
-   * directly on their own id is rejected before the DB lookup.
-   */
   @Transactional()
   async deleteUserByPermission(
     targetUserId: string,

@@ -1,12 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
 
 import { SelfOrPermissionGuard } from '@/core/self-or-permission/self-or-permission.guard';
+import { PermissionsGuard } from '@/modules/rbac/guards/permissions.guard';
 import { SelfOrPermissionAccess } from '@/core/self-or-permission/self-or-permission.types';
 import { EmailVerificationMethod } from '@/core/email-verification/email-verification-method.enum';
 
 import { UserProfileDto } from '../dto/user-profile.dto';
+import { ListUsersQueryDto, ListUsersResponseDto } from '../dto/list-users.dto';
 import { UsersController } from '../users.controller';
 import { UsersService } from '../services/users.service';
+import { UsersListService } from '../services/users-list.service';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -17,13 +20,19 @@ describe('UsersController', () => {
     initiateEmailChange: vi.fn<UsersService['initiateEmailChange']>(),
     confirmEmailChange: vi.fn<UsersService['confirmEmailChange']>(),
   };
+  const usersListServiceMock = {
+    getUsersList: vi.fn<UsersListService['getUsersList']>(),
+  };
 
   beforeEach(async () => {
     vi.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UsersController],
-      providers: [{ provide: UsersService, useValue: usersServiceMock }],
+      providers: [
+        { provide: UsersService, useValue: usersServiceMock },
+        { provide: UsersListService, useValue: usersListServiceMock },
+      ],
     })
       // `@UseGuards(SelfOrPermissionGuard)` on the controller makes Nest
       // resolve the guard's own dependencies (RbacConfigService) while
@@ -32,6 +41,10 @@ describe('UsersController', () => {
       // verify the controller delegates correctly, so the guard is stubbed.
       .overrideGuard(SelfOrPermissionGuard)
       .useValue({ canActivate: () => true })
+      // Same reason for the class-level `PermissionsGuard` (added for
+      // `GET /users`) — covered by its own spec and the rbac e2e suite.
+      .overrideGuard(PermissionsGuard)
+      .useValue({ canActivate: () => true })
       .compile();
 
     controller = module.get<UsersController>(UsersController);
@@ -39,6 +52,22 @@ describe('UsersController', () => {
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
+  });
+
+  describe('getUsersList', () => {
+    it('delegates to UsersListService.getUsersList with the validated query and the actor id', async () => {
+      const query = Object.assign(new ListUsersQueryDto(), { q: 'ivan' });
+      const serviceResult: ListUsersResponseDto = { items: [], nextCursor: null };
+      usersListServiceMock.getUsersList.mockResolvedValue(serviceResult);
+      const request = { user: { userId: 'admin-1' } } as Parameters<
+        UsersController['getUsersList']
+      >[1];
+
+      const result = await controller.getUsersList(query, request);
+
+      expect(usersListServiceMock.getUsersList).toHaveBeenCalledWith(query, 'admin-1');
+      expect(result).toBe(serviceResult);
+    });
   });
 
   describe('getUser', () => {

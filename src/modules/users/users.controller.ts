@@ -5,6 +5,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { SelfOrPermission } from "../../core/self-or-permission/self-or-permission.decorator";
 import { UserProfileDto } from "./dto/user-profile.dto";
 import { UsersService } from "./services/users.service";
+import { UsersListService } from "./services/users-list.service";
 import { SelfOrPermissionAccessContext } from "../../core/self-or-permission/self-or-permission-access.decorator";
 import { SelfOrPermissionGuard } from "../../core/self-or-permission/self-or-permission.guard";
 import type { SelfOrPermissionAccess } from "../../core/self-or-permission/self-or-permission.types";
@@ -20,17 +21,31 @@ import { ConfirmDeleteLinkQueryDto } from "./dto/confirm-delete-link.query.dto";
 import { PermissionsGuard } from "@/modules/rbac/guards/permissions.guard";
 import { RequirePermission } from "@/modules/rbac/decorators/require-permission.decorator";
 import type { RequestUser } from "@/core/auth/auth.types";
+import { ListUsersQueryDto, ListUsersResponseDto } from "./dto/list-users.dto";
+import { throttleFromConfig } from "@/core/throttler/throttle-from-config";
 
 type AuthenticatedRequest = FastifyRequest & { user: RequestUser };
 
 @ApiTags('Users')
 @UseGuards(SelfOrPermissionGuard)
 @UseGuards(SelfOnlyGuard)
+@UseGuards(PermissionsGuard)
 @Controller('users')
 export class UsersController {
     constructor(
         private readonly usersService: UsersService,
+        private readonly usersListService: UsersListService,
     ) { }
+
+    @Throttle(throttleFromConfig('THROTTLE_USERS_LIST_LIMIT', 'THROTTLE_USERS_LIST_TTL'))
+    @Get()
+    @RequirePermission('users', 'list')
+    async getUsersList(
+        @Query() query: ListUsersQueryDto,
+        @Req() request: AuthenticatedRequest,
+    ): Promise<ListUsersResponseDto> {
+        return this.usersListService.getUsersList(query, request.user.userId)
+    }
 
     @Throttle({ default: { limit: 20, ttl: seconds(60) } })
     @Get(':userId')
@@ -117,7 +132,6 @@ export class UsersController {
         return result;
     }
 
-    @UseGuards(PermissionsGuard)
     @RequirePermission('users', 'delete')
     @Delete(':userId')
     async deleteUserByPermission(

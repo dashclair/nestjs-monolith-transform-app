@@ -29,6 +29,19 @@ export const configValidationSchema = Joi.object<Config>({
   THROTTLE_GLOBAL_LIMIT: Joi.number().optional().default(10),
   THROTTLE_USERS_READ_LIMIT: Joi.number().optional().default(20), // default 20
   THROTTLE_USERS_READ_TTL: Joi.number().optional().default(60),   // default 60 (секунд)
+  THROTTLE_USERS_LIST_LIMIT: Joi.number().integer().min(1).optional().default(20),
+  THROTTLE_USERS_LIST_TTL: Joi.number().integer().min(1).optional().default(60), // секунды
+
+  /**
+   * Users list (GET /users) pagination
+   */
+  USERS_LIST_MAX_LIMIT: Joi.number().integer().min(1).optional().default(100),
+  USERS_LIST_DEFAULT_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .max(Joi.ref('USERS_LIST_MAX_LIMIT'))
+    .optional()
+    .default(20),
 
   /**
    * PostgreSQL database options

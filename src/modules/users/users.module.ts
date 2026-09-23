@@ -7,6 +7,7 @@ import { RbacModule } from '@/modules/rbac/rbac.module';
 
 import { UsersController } from './users.controller';
 import { UsersService } from './services/users.service';
+import { UsersListService } from './services/users-list.service';
 import { UserProfileFieldsPolicy } from './services/user-profile-policy.service';
 import { UserUpdateFieldsPolicy } from './services/user-update-fields-policy.service';
 import { User } from './entities/user.entity';
@@ -18,7 +19,12 @@ import { User } from './entities/user.entity';
     EmailVerificationModule,
   ],
   controllers: [UsersController],
-  providers: [UsersService, UserProfileFieldsPolicy, UserUpdateFieldsPolicy],
+  providers: [
+    UsersService,
+    UsersListService,
+    UserProfileFieldsPolicy,
+    UserUpdateFieldsPolicy,
+  ],
   exports: [TypeOrmModule, UsersService],
 })
 export class UsersModule {}
