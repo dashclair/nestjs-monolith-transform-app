@@ -18,7 +18,7 @@ import { UpdateUserDto } from "./dto/update-user.dto";
 import { ChangeEmailDto } from "./dto/change-email.dto";
 import { ConfirmEmailChangeDto } from "./dto/confirm-email-change.dto";
 import { ConfirmEmailChangeLinkQueryDto } from "./dto/confirm-email-change-link.query.dto";
-import { SelfOnly, SelfOnlyGuard } from "@/core/auth/self-only.guard";
+import { SelfOnly, SelfOnlyGuard } from "@/core/auth/guards/self-only.guard";
 import { DeleteRequestDto } from "./dto/delete-request.dto";
 import { ConfirmDeleteDto } from "./dto/confirm-delete.dto";
 import { ConfirmDeleteLinkQueryDto } from "./dto/confirm-delete-link.query.dto";

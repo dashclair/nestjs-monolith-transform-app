@@ -3,7 +3,7 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
 import { AuthCoreModule } from '@/core/auth/auth-core.module';
-import { JwtAuthGuard } from '@/core/auth/jwt-auth.guard';
+import { JwtAuthGuard } from '@/core/auth/guards/jwt-auth.guard';
 import { ConfigModule } from '@/core/config/config.module';
 import { DatabaseModule } from '@/core/database/database.module';
 import { AllExceptionsFilter } from '@/core/error-handling/all-exceptions.filter';

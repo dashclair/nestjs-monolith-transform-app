@@ -5,8 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { StringValue } from 'ms';
 
 import { ConfigService } from '@/core/config/config.service';
-import { JwtPayload } from '@/core/auth/auth.types';
-import { User } from '@/modules/users/entities/user.entity';
+import { JwtPayload, TokenSubject } from '@/core/auth/auth.types';
 
 export interface TokenPair {
   accessToken: string;
@@ -20,7 +19,7 @@ export class TokenService {
     private readonly configService: ConfigService,
   ) {}
 
-  async issueTokens(user: User): Promise<TokenPair> {
+  async issueTokens(user: TokenSubject): Promise<TokenPair> {
     const basePayload: Omit<JwtPayload, 'type' | 'jti'> = {
       sub: user.id,
       email: user.email,

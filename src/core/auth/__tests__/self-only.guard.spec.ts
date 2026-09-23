@@ -4,7 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { RequestUser } from '@/core/auth/auth.types';
 
-import { SelfOnlyGuard } from './self-only.guard';
+import { SelfOnlyGuard } from '../guards/self-only.guard';
 
 describe('SelfOnlyGuard', () => {
   let guard: SelfOnlyGuard;

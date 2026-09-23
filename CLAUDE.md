@@ -78,7 +78,7 @@ never `typeorm migration:generate` directly.
   ├── common/          # dependency-free helpers shared by any layer (e.g. validation decorators)
   ├── core/            # cross-cutting infra, not business logic
   │   ├── app/         # AppModule — wires everything together
-  │   ├── auth/        # JwtAuthGuard/JwtStrategy, @Public(), SelfOnlyGuard, token service
+  │   ├── auth/        # JWT infra: TokenService, JwtAuthGuard, extractors, @Public(), SelfOnlyGuard
   │   ├── config/      # ConfigModule + Joi-validated, typed ConfigService
   │   ├── database/    # TypeORM + PostgreSQL connection, typeorm-transactional wiring
   │   ├── error-handling/  # AllExceptionsFilter + diagnostic TestErrorsController
@@ -123,8 +123,12 @@ never `typeorm migration:generate` directly.
   gated by `AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION` /
   `AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION`), `refresh`, `logout`. JWTs travel
   in httpOnly cookies (`access_token`, `refresh_token`), with an
-  `Authorization: Bearer` fallback in `JwtStrategy`; `JwtAuthGuard` is a
-  global `APP_GUARD` (opt out with `@Public()`).
+  `Authorization: Bearer` fallback (`core/auth/jwt-extractors.ts`);
+  `JwtAuthGuard` (`core/auth`) is a global `APP_GUARD` (opt out with
+  `@Public()`). The `'jwt'` passport strategy it uses, `JwtStrategy`, is
+  registered by `AuthModule` (`modules/auth/strategies/`) because it checks
+  the user's current state. `core/auth` itself must not import from
+  `modules/` (`TokenService` takes a structural `TokenSubject`, not `User`).
 - **RBAC** (`src/modules/rbac`): roles/permissions/grants stored in the DB,
   managed via `/admin/rbac/*`; routes are protected with `PermissionsGuard` +
   `@RequirePermission(resource, action)`, or `SelfOrPermissionGuard` +

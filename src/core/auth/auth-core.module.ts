@@ -4,15 +4,15 @@ import { PassportModule } from '@nestjs/passport';
 
 import { ConfigModule } from '@/core/config/config.module';
 import { ConfigService } from '@/core/config/config.service';
-import { UsersModule } from '@/modules/users/users.module';
 
-import { JwtStrategy } from './jwt.strategy';
 import { TokenService } from './services/token.service';
 
+// JWT signing/verification infra only. The `'jwt'` passport strategy that
+// `JwtAuthGuard` relies on is registered by `AuthModule` (`modules/auth`),
+// since validating a token requires looking up the user.
 @Module({
   imports: [
     PassportModule,
-    UsersModule,
     NestJwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -21,7 +21,7 @@ import { TokenService } from './services/token.service';
       }),
     }),
   ],
-  providers: [JwtStrategy, TokenService],
+  providers: [TokenService],
   exports: [NestJwtModule, PassportModule, TokenService],
 })
 export class AuthCoreModule {}

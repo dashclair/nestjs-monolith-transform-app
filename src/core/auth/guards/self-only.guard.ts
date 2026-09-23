@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
-import { RequestWithUser } from './auth.types';
+import { RequestWithUser } from '../auth.types';
 
 export const SELF_ONLY_PARAM_KEY = 'selfOnlyParam';
 export const SelfOnly = (paramName = 'id') =>

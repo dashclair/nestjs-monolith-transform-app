@@ -1,20 +1,18 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
-import type { FastifyRequest } from 'fastify';
+import { Strategy } from 'passport-jwt';
+
+import { JwtPayload, RequestUser } from '@/core/auth/auth.types';
+import { jwtFromRequestExtractor } from '@/core/auth/jwt-extractors';
 import { ConfigService } from '@/core/config/config.service';
 import { UsersService } from '@/modules/users/services/users.service';
-import { JwtPayload, RequestUser } from './auth.types';
 
-export function cookieExtractor(req: FastifyRequest): string | null {
-  return req.cookies?.access_token ?? null;
-}
-
-export const jwtFromRequestExtractor = ExtractJwt.fromExtractors([
-  cookieExtractor,
-  ExtractJwt.fromAuthHeaderAsBearerToken(),
-]);
-
+/**
+ * Registers the `'jwt'` passport strategy used by the global `JwtAuthGuard`
+ * (`core/auth`). Lives here rather than in `core/auth` because validating a
+ * token means checking the user's current state (soft-deleted, revoked
+ * `tokenVersion`), which is users-domain knowledge.
+ */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
@@ -39,7 +37,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     if (user?.deletedAt) {
-      throw new UnauthorizedException('User not found')
+      throw new UnauthorizedException('User not found');
     }
 
     if (payload.tokenVersion !== user.tokenVersion) {

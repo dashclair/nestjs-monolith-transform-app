@@ -2,10 +2,10 @@ import { UnauthorizedException } from '@nestjs/common';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 
+import { TokenSubject } from '@/core/auth/auth.types';
 import { ConfigService } from '@/core/config/config.service';
-import { User } from '@/modules/users/entities/user.entity';
 
-import { TokenService } from './token.service';
+import { TokenService } from '../services/token.service';
 
 describe('TokenService', () => {
   let service: TokenService;
@@ -20,14 +20,13 @@ describe('TokenService', () => {
     get: vi.fn((key: string) => configValues[key]),
   };
 
-  const buildUser = (overrides: Partial<User> = {}): User =>
-    ({
-      id: 'user-id',
-      email: 'user@example.com',
-      roles: [{ name: 'user' }],
-      tokenVersion: 0,
-      ...overrides,
-    }) as User;
+  const buildUser = (overrides: Partial<TokenSubject> = {}): TokenSubject => ({
+    id: 'user-id',
+    email: 'user@example.com',
+    roles: [{ name: 'user' }],
+    tokenVersion: 0,
+    ...overrides,
+  });
 
   beforeEach(async () => {
     vi.clearAllMocks();
