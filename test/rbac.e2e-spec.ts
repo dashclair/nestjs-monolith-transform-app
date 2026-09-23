@@ -14,8 +14,8 @@ import { Role } from '@/modules/rbac/entities/role.entity';
 import { User } from '@/modules/users/entities/user.entity';
 
 // Hits the real Postgres instance from `docker compose up -d postgres` —
-// there's no isolated test DB/testcontainers setup yet (see PLAN.md's
-// "стоит добавить" list), so every fixture this file creates is cleaned up
+// there's no isolated test DB/testcontainers setup yet, so every fixture
+// this file creates is cleaned up
 // in afterAll, and all names/emails are namespaced with `e2e-rbac-` to avoid
 // colliding with the seeded admin/user roles or manually-created dev data.
 describe('RBAC (e2e)', () => {
@@ -32,7 +32,7 @@ describe('RBAC (e2e)', () => {
   const PERMISSION_NAME = 'e2e-rbac-articles';
   const NON_EXISTENT_ID = '00000000-0000-0000-0000-000000000000';
 
-  // Since T-014, login no longer returns tokens in the body — the access
+  // Login doesn't return tokens in the body — the access
   // token travels only as a `Set-Cookie`. Extracting it here and reusing it
   // as a Bearer header below is a deliberate choice, not an oversight: it
   // lets this whole suite keep testing RBAC/guards without also having to

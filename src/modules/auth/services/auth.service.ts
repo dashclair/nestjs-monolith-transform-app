@@ -12,15 +12,14 @@ import { Transactional } from 'typeorm-transactional';
 
 import { TokenService, TokenPair } from '@/core/auth/services/token.service';
 import { ConfigService } from '@/core/config/config.service';
-import { MailerService } from '@/core/mailer/mailer.service';
 import { User } from '@/modules/users/entities/user.entity';
 import { UsersService } from '@/modules/users/services/users.service';
 
-import { EmailVerificationService } from './email-verification.service';
+import { EmailVerificationService } from '@/core/email-verification/email-verification.service';
 import { PasswordService } from './password.service';
-import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
+import { EmailVerificationPurpose } from '../../../core/email-verification/email-verification-purpose.enum';
 import { LoginDto } from '../dto/login.dto';
-import { EmailVerificationMethod } from '../email-verification-method.enum';
+import { EmailVerificationMethod } from '../../../core/email-verification/email-verification-method.enum';
 import { FastifyReply } from 'fastify';
 
 @Injectable()
@@ -36,22 +35,9 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly passwordService: PasswordService,
     private readonly emailVerificationService: EmailVerificationService,
-    private readonly mailerService: MailerService,
     private readonly configService: ConfigService,
     private readonly tokenService: TokenService,
   ) {}
-
-  private async sendConfirmationEmail(
-    email: string,
-    plaintext: string,
-  ): Promise<void> {
-    const sent = await this.mailerService.sendMail({
-      to: email,
-      subject: 'Confirm your email',
-      html: `Code: ${plaintext}`,
-    });
-    this.logger.log({ event: 'auth.email_verification.sent', email, sent });
-  }
 
   private async findUserForConfirmation(email: string): Promise<User> {
     const user = await this.usersService.findByEmail(email, ['roles']);
@@ -93,11 +79,11 @@ export class AuthService {
       return { id: user.id, email: user.email, createdAt: user.createdAt };
     }
 
-    const { method, plaintext } = await this.emailVerificationService.issue(
+    const { method } = await this.emailVerificationService.issueAndSend(
       user.id,
       EmailVerificationPurpose.REGISTER,
+      email,
     );
-    await this.sendConfirmationEmail(email, plaintext);
 
     this.logger.log({
       event: 'auth.register.success',
@@ -187,11 +173,11 @@ export class AuthService {
       return tokens;
     }
 
-    const { method, plaintext } = await this.emailVerificationService.issue(
+    const { method } = await this.emailVerificationService.issueAndSend(
       user.id,
       EmailVerificationPurpose.LOGIN,
+      user.email,
     );
-    await this.sendConfirmationEmail(user.email, plaintext);
     this.logger.log({
       event: 'auth.login.success',
       userId: user.id,
@@ -254,11 +240,11 @@ export class AuthService {
       );
     }
 
-    const { plaintext } = await this.emailVerificationService.issue(
+    await this.emailVerificationService.issueAndSend(
       user.id,
       EmailVerificationPurpose.LOGIN,
+      email,
     );
-    await this.sendConfirmationEmail(email, plaintext);
 
     this.logger.log({ event: 'auth.login.confirmation_sent', email });
     return { sent: true as const };
@@ -329,11 +315,11 @@ export class AuthService {
       );
     }
 
-    const { plaintext } = await this.emailVerificationService.issue(
+    await this.emailVerificationService.issueAndSend(
       user.id,
       EmailVerificationPurpose.REGISTER,
+      email,
     );
-    await this.sendConfirmationEmail(email, plaintext);
 
     this.logger.log({ event: 'auth.email_verification.resend', email });
     return { sent: true as const };

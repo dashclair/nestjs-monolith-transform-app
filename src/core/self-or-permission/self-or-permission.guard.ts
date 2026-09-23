@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  SetMetadata,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -12,6 +13,7 @@ import { RbacConfigService } from '@/modules/rbac/services/rbac-config.service';
 import { SELF_OR_PERMISSION_KEY, SelfOrPermissionMeta } from './self-or-permission.decorator';
 
 import { RequestUser } from '@/core/auth/auth.types';
+import { SELF_ONLY_PARAM_KEY } from './self-only.guard';
 
 
 @Injectable()
@@ -75,3 +77,10 @@ export class SelfOrPermissionGuard implements CanActivate {
     throw new ForbiddenException();
   }
 }
+
+
+export const SelfOnly = (
+  paramName: string,
+  resource: string,
+  action: string,
+) => SetMetadata(SELF_ONLY_PARAM_KEY, { paramName });

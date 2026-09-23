@@ -11,6 +11,11 @@ as `nest new` boilerplate; `docs/PLAN.md` is the sequenced ticket backlog
 Russian**. Read it (and `docs/IMPLEMENTATION-LOG.md`) before starting new
 ticket work to see what's already decided and why.
 
+**`docs/` is local-only — gitignored, not part of the repository.** It exists
+in the maintainer's working copy but not in a fresh clone. If it's missing,
+don't recreate it or treat references to it (here or in code comments) as
+broken — just work from the code. Never `git add -f` anything under `docs/`.
+
 - `docs/PLAN.md` — the plan/backlog, one checkbox section per ticket (`T-0xx`).
   Keep it updated as tickets complete, but only when the user asks — it's not
   auto-maintained by every commit.
@@ -91,7 +96,7 @@ never `typeorm migration:generate` directly.
   config values must be explicitly coerced at the call site**
   (`String(configService.get('X')) === 'true'`, `Number(...)`) — comparing
   directly against a boolean literal is a bug that has bitten this repo once
-  already (see `IMPLEMENTATION-LOG.md`, T-011).
+  already.
 - **Global request pipeline** (registered via `APP_FILTER`/`APP_GUARD`/
   `APP_INTERCEPTOR` in `AppModule`, not imperatively in `main.ts`, so they also
   apply inside `TestingModule`-based tests): `ValidationPipe`
@@ -111,12 +116,17 @@ never `typeorm migration:generate` directly.
   (`HEALTH_DISK_PATH` — no cross-platform default; falls back to `C:\` on
   Windows vs `/` on POSIX because `check-disk-space` rejects the wrong style
   of path for the host OS).
-- **Auth module** (`src/modules/auth`) currently implements registration only
-  (`POST /auth/register`, argon2 password hashing, optional OTP/magic-link
-  email verification gated by `AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION`).
-  Login/JWT issuance/RBAC are future tickets (T-012+ in `PLAN.md`) — don't
-  assume a working `/auth/login` exists yet even though the controller has a
-  placeholder route.
+- **Auth module** (`src/modules/auth`): registration and login (argon2
+  password hashing; optional OTP/magic-link email confirmation for each,
+  gated by `AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION` /
+  `AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION`), `refresh`, `logout`. JWTs travel
+  in httpOnly cookies (`access_token`, `refresh_token`), with an
+  `Authorization: Bearer` fallback in `JwtStrategy`; `JwtAuthGuard` is a
+  global `APP_GUARD` (opt out with `@Public()`).
+- **RBAC** (`src/modules/rbac`): roles/permissions/grants stored in the DB,
+  managed via `/admin/rbac/*`; routes are protected with `PermissionsGuard` +
+  `@RequirePermission(resource, action)`, or `SelfOrPermissionGuard` /
+  `SelfOnlyGuard` for `/users/:id`-style routes.
 - **Swagger**: served at `SWAGGER_PATH` (`APP_NAME`/`API_VERSION` from
   config), bearer auth scheme already declared even though no route enforces
   it yet.

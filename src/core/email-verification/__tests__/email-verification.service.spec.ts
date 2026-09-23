@@ -10,12 +10,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Repository } from 'typeorm';
 
 import { ConfigService } from '@/core/config/config.service';
+import { MailerService } from '@/core/mailer/mailer.service';
 
 import { EmailVerificationMethod } from '../email-verification-method.enum';
 import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
-import { EmailVerification } from '../entities/email-verification.entity';
-import { EmailVerificationService } from '../services/email-verification.service';
-
+import { EmailVerification } from '../../../modules/auth/entities/email-verification.entity';
+import { EmailVerificationService } from '@/core/email-verification/email-verification.service';
 // `recordFailedAttempt` is decorated with `@Transactional()`, which needs
 // `initializeTransactionalContext()` to have run first (only happens in
 // `main.ts`'s `bootstrap()`, never in a unit test). Replacing the decorator
@@ -40,6 +40,7 @@ describe('EmailVerificationService', () => {
   const configValues: Record<string, string> = {
     AUTH_REGISTER_CONFIRMATION_METHOD: 'otp',
     AUTH_LOGIN_CONFIRMATION_METHOD: 'otp',
+    AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD: 'otp',
     EMAIL_VERIFICATION_TTL_MINUTES: '10',
     EMAIL_VERIFICATION_MAX_ATTEMPTS: '5',
     EMAIL_VERIFICATION_RESEND_INTERVAL_SECONDS: '60',
@@ -47,6 +48,9 @@ describe('EmailVerificationService', () => {
   };
   const configServiceMock = {
     get: vi.fn((key: string) => configValues[key]),
+  };
+  const mailerServiceMock = {
+    sendMail: vi.fn<MailerService['sendMail']>(),
   };
 
   const hash = (value: string) =>
@@ -79,6 +83,7 @@ describe('EmailVerificationService', () => {
         EmailVerificationService,
         { provide: getRepositoryToken(EmailVerification), useValue: repoMock },
         { provide: ConfigService, useValue: configServiceMock },
+        { provide: MailerService, useValue: mailerServiceMock },
       ],
     }).compile();
 
@@ -155,6 +160,26 @@ describe('EmailVerificationService', () => {
       );
     });
 
+    it('uses AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD for purpose = EMAIL_CHANGE, not the LOGIN/REGISTER keys', async () => {
+      configValues.AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD = 'magic_link';
+      configValues.AUTH_REGISTER_CONFIRMATION_METHOD = 'otp';
+      configValues.AUTH_LOGIN_CONFIRMATION_METHOD = 'otp';
+      repoMock.findOneBy.mockResolvedValue(null);
+
+      const { method, plaintext } = await service.issue(
+        'user-id',
+        EmailVerificationPurpose.EMAIL_CHANGE,
+      );
+
+      expect(method).toBe(EmailVerificationMethod.MAGIC_LINK);
+      expect(plaintext).toMatch(/^[0-9a-f]{64}$/);
+      expect(repoMock.save).toHaveBeenCalledWith(
+        expect.objectContaining({ purpose: EmailVerificationPurpose.EMAIL_CHANGE }),
+      );
+
+      configValues.AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD = 'otp';
+    });
+
     it('never stores the plaintext code, only its sha256 hash', async () => {
       repoMock.findOneBy.mockResolvedValue(null);
 
@@ -166,6 +191,42 @@ describe('EmailVerificationService', () => {
       const [savedRow] = repoMock.save.mock.calls[0];
       expect(savedRow.codeHash).not.toBe(plaintext);
       expect(savedRow.codeHash).toBe(hash(plaintext));
+    });
+  });
+
+  describe('issueAndSend', () => {
+    it('issues a code and emails it to the given target address', async () => {
+      repoMock.findOneBy.mockResolvedValue(null);
+      mailerServiceMock.sendMail.mockResolvedValue(true);
+
+      const result = await service.issueAndSend(
+        'user-id',
+        EmailVerificationPurpose.REGISTER,
+        'target@example.com',
+      );
+
+      expect(result).toEqual({ method: EmailVerificationMethod.OTP });
+      expect(mailerServiceMock.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'target@example.com' }),
+      );
+    });
+
+    it('sends the code to targetEmail even when it differs from the account on file (email-change flow)', async () => {
+      repoMock.findOneBy.mockResolvedValue(null);
+      mailerServiceMock.sendMail.mockResolvedValue(true);
+
+      await service.issueAndSend(
+        'user-id',
+        EmailVerificationPurpose.EMAIL_CHANGE,
+        'new-address@example.com',
+      );
+
+      expect(mailerServiceMock.sendMail).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'new-address@example.com' }),
+      );
+      expect(repoMock.save).toHaveBeenCalledWith(
+        expect.objectContaining({ purpose: EmailVerificationPurpose.EMAIL_CHANGE }),
+      );
     });
   });
 

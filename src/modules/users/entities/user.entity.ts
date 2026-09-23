@@ -3,6 +3,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   JoinTable,
   ManyToMany,
   PrimaryGeneratedColumn,
@@ -11,6 +12,7 @@ import {
 
 import { Role } from '@/modules/rbac/entities/role.entity';
 
+@Index(['createdAt', 'id'])
 @Entity({ name: 'users' })
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -41,7 +43,10 @@ export class User {
   @Column({ type: 'boolean', default: false })
   isEmailVerified: boolean;
 
-  @CreateDateColumn({ type: 'timestamptz' })
+  @Column({ type: 'varchar', nullable: true })
+  pendingEmail: string | null;
+
+  @CreateDateColumn({ type: 'timestamptz',  precision: 3 })
   createdAt: Date;
 
   @UpdateDateColumn({ type: 'timestamptz' })
@@ -55,4 +60,10 @@ export class User {
 
   @Column({ type: 'int', default: 0 })
   tokenVersion: number;
+
+  @Column({
+    type: 'timestamptz',
+    nullable: true,
+  })
+  deletedAt: Date | null;
 }

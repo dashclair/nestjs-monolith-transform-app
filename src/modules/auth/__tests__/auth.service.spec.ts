@@ -11,14 +11,14 @@ import type { FastifyReply } from 'fastify';
 
 import { TokenService } from '@/core/auth/services/token.service';
 import { ConfigService } from '@/core/config/config.service';
-import { MailerService } from '@/core/mailer/mailer.service';
 import { User } from '@/modules/users/entities/user.entity';
 import { UsersService } from '@/modules/users/services/users.service';
 
-import { EmailVerificationMethod } from '../email-verification-method.enum';
-import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
+import { EmailVerificationMethod } from '../../../core/email-verification/email-verification-method.enum';
+import { EmailVerificationPurpose } from '../../../core/email-verification/email-verification-purpose.enum';
+import { EmailVerificationService } from '@/core/email-verification/email-verification.service';
+
 import { AuthService } from '../services/auth.service';
-import { EmailVerificationService } from '../services/email-verification.service';
 import { PasswordService } from '../services/password.service';
 
 // `AuthService`'s methods are decorated with `@Transactional()`, which needs
@@ -49,12 +49,9 @@ describe('AuthService', () => {
     verify: vi.fn<PasswordService['verify']>(),
   };
   const emailVerificationServiceMock = {
-    issue: vi.fn<EmailVerificationService['issue']>(),
+    issueAndSend: vi.fn<EmailVerificationService['issueAndSend']>(),
     confirm: vi.fn<EmailVerificationService['confirm']>(),
     canResend: vi.fn<EmailVerificationService['canResend']>(),
-  };
-  const mailerServiceMock = {
-    sendMail: vi.fn<MailerService['sendMail']>(),
   };
   const configServiceMock = {
     get: vi.fn<ConfigService['get']>(),
@@ -91,7 +88,6 @@ describe('AuthService', () => {
           provide: EmailVerificationService,
           useValue: emailVerificationServiceMock,
         },
-        { provide: MailerService, useValue: mailerServiceMock },
         { provide: ConfigService, useValue: configServiceMock },
         { provide: TokenService, useValue: tokenServiceMock },
       ],
@@ -127,8 +123,7 @@ describe('AuthService', () => {
         passwordHash: 'hashed-password',
         isEmailVerified: true,
       });
-      expect(emailVerificationServiceMock.issue).not.toHaveBeenCalled();
-      expect(mailerServiceMock.sendMail).not.toHaveBeenCalled();
+      expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
       expect(result).toEqual({
         id: createdUser.id,
         email: createdUser.email,
@@ -144,9 +139,8 @@ describe('AuthService', () => {
       passwordServiceMock.hash.mockResolvedValue('hashed-password');
       const createdUser = buildUser({ isEmailVerified: false });
       usersServiceMock.create.mockResolvedValue(createdUser);
-      emailVerificationServiceMock.issue.mockResolvedValue({
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
         method: EmailVerificationMethod.OTP,
-        plaintext: '123456',
       });
 
       const result = await service.register('user@example.com', 'password123');
@@ -156,12 +150,10 @@ describe('AuthService', () => {
         passwordHash: 'hashed-password',
         isEmailVerified: false,
       });
-      expect(emailVerificationServiceMock.issue).toHaveBeenCalledWith(
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
         createdUser.id,
         EmailVerificationPurpose.REGISTER,
-      );
-      expect(mailerServiceMock.sendMail).toHaveBeenCalledWith(
-        expect.objectContaining({ to: 'user@example.com' }),
+        'user@example.com',
       );
       expect(result).toEqual({
         requiresConfirmation: true,
@@ -245,27 +237,23 @@ describe('AuthService', () => {
         HttpException,
       );
 
-      expect(emailVerificationServiceMock.issue).not.toHaveBeenCalled();
-      expect(mailerServiceMock.sendMail).not.toHaveBeenCalled();
+      expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
     });
 
     it('should issue a new code and send an email when canResend returns true', async () => {
       const user = buildUser();
       usersServiceMock.findByEmail.mockResolvedValue(user);
       emailVerificationServiceMock.canResend.mockResolvedValue(true);
-      emailVerificationServiceMock.issue.mockResolvedValue({
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
         method: EmailVerificationMethod.OTP,
-        plaintext: '654321',
       });
 
       const result = await service.resend('user@example.com');
 
-      expect(emailVerificationServiceMock.issue).toHaveBeenCalledWith(
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
         user.id,
         EmailVerificationPurpose.REGISTER,
-      );
-      expect(mailerServiceMock.sendMail).toHaveBeenCalledWith(
-        expect.objectContaining({ to: 'user@example.com' }),
+        'user@example.com',
       );
       expect(result).toEqual({ sent: true });
     });
@@ -403,7 +391,7 @@ describe('AuthService', () => {
 
       const result = await service.login(loginDto);
 
-      expect(emailVerificationServiceMock.issue).not.toHaveBeenCalled();
+      expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
       expect(result).toEqual(tokens);
     });
 
@@ -419,17 +407,17 @@ describe('AuthService', () => {
       const user = buildUser({ isEmailVerified: true });
       usersServiceMock.findByEmail.mockResolvedValue(user);
       passwordServiceMock.verify.mockResolvedValue(true);
-      emailVerificationServiceMock.issue.mockResolvedValue({
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
         method: EmailVerificationMethod.OTP,
-        plaintext: '123456',
       });
 
       const result = await service.login(loginDto);
 
       expect(tokenServiceMock.issueTokens).not.toHaveBeenCalled();
-      expect(emailVerificationServiceMock.issue).toHaveBeenCalledWith(
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
         user.id,
         EmailVerificationPurpose.LOGIN,
+        user.email,
       );
       expect(result).toEqual({
         requiresConfirmation: true,
@@ -492,9 +480,8 @@ describe('AuthService', () => {
       const user = buildUser();
       usersServiceMock.findByEmail.mockResolvedValue(user);
       emailVerificationServiceMock.canResend.mockResolvedValue(true);
-      emailVerificationServiceMock.issue.mockResolvedValue({
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
         method: EmailVerificationMethod.OTP,
-        plaintext: '654321',
       });
 
       const result = await service.resendLoginConfirmation('user@example.com');
@@ -503,9 +490,10 @@ describe('AuthService', () => {
         user.id,
         EmailVerificationPurpose.LOGIN,
       );
-      expect(emailVerificationServiceMock.issue).toHaveBeenCalledWith(
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
         user.id,
         EmailVerificationPurpose.LOGIN,
+        'user@example.com',
       );
       expect(result).toEqual({ sent: true });
     });

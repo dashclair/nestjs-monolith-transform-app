@@ -8,6 +8,8 @@ description: Draft and create a git commit for this repo. Use when asked to comm
 Draft a commit message in this repo's established style, confirm it with the
 user, then create the commit. This does not push, and does not touch
 `docs/PLAN.md` or `docs/IMPLEMENTATION-LOG.md` — only the commit itself.
+`docs/` is gitignored (local-only notes) — never stage it, not even with
+`git add -f`.
 
 ## Gather context (run in parallel)
 

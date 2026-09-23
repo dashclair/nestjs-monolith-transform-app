@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Propagation, Transactional } from 'typeorm-transactional';
 import { Repository } from 'typeorm';
@@ -6,13 +6,17 @@ import { Repository } from 'typeorm';
 import { DEFAULT_ROLE_NAME } from '@/modules/rbac/rbac.constants';
 import { Role } from '@/modules/rbac/entities/role.entity';
 
-
 import { plainToInstance } from 'class-transformer';
 import { User } from '../entities/user.entity';
 import { UserProfileDto } from '../dto/user-profile.dto';
-import { SelfOrPermissionAccess } from '@/core/self-or-permission/self-or-permission.types';
+import type { SelfOrPermissionAccess } from '@/core/self-or-permission/self-or-permission.types';
 import { UserProfileFieldsPolicy } from './user-profile-policy.service';
 import { UserProfileField } from '../types/user-profile-policy.types';
+import { UpdateUserDto } from '../dto/update-user.dto';
+import { UserUpdateFieldsPolicy } from './user-update-fields-policy.service';
+import { EmailVerificationService } from '@/core/email-verification/email-verification.service';
+import { EmailVerificationPurpose } from '@/core/email-verification/email-verification-purpose.enum';
+import { EmailVerificationMethod } from '@/core/email-verification/email-verification-method.enum';
 
 @Injectable()
 export class UsersService {
@@ -21,7 +25,9 @@ export class UsersService {
     @InjectRepository(User) private readonly repo: Repository<User>,
     @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
 
-    private readonly userProfileFieldsPolicy: UserProfileFieldsPolicy
+    private readonly userProfileFieldsPolicy: UserProfileFieldsPolicy,
+    private readonly userUpdateFieldsPolicy: UserUpdateFieldsPolicy,
+    private readonly emailVerificationService: EmailVerificationService,
   ) { }
 
   findByEmail(email: string, relations: string[] = []): Promise<User | null> {
@@ -30,6 +36,27 @@ export class UsersService {
 
   findById(id: string, relations: string[] = []): Promise<User | null> {
     return this.repo.findOne({ where: { id }, relations });
+  }
+
+  private generateDeletedEmail(userId: string): string {
+    return `deleted-${userId}@deleted.local`;
+  }
+
+  /**
+   * `roles` is intentionally left alone (deletedAt already blocks access via
+   * JwtStrategy; revoking roles separately buys nothing), and `id`/`createdAt`
+   * are never touched (referential integrity for future Epic 2 entities).
+   */
+  private async anonymizeUser(user: User): Promise<void> {
+    user.email = this.generateDeletedEmail(user.id);
+    user.photo = null;
+    user.passwordHash = '';
+    user.pendingEmail = null;
+    user.isEmailVerified = false;
+    user.deletedAt = new Date();
+    user.tokenVersion += 1;
+
+    await this.repo.save(user);
   }
 
   async create(data: {
@@ -119,6 +146,229 @@ export class UsersService {
     return plainToInstance(UserProfileDto, profile, {
       excludeExtraneousValues: true,
     });
+  }
+
+  @Transactional()
+  async updateUser(
+    userId: string,
+    dto: UpdateUserDto,
+    access: SelfOrPermissionAccess) {
+
+    const allowedFields =
+      this.userUpdateFieldsPolicy.getAllowedFields(access);
+
+    const requestedFields = (Object.keys(dto) as Array<keyof UpdateUserDto>).filter(
+      (field) => dto[field] !== undefined,
+    );
+
+    const forbiddenFields = requestedFields.filter(
+      (field) => !allowedFields.includes(field),
+    );
+
+    if (forbiddenFields.includes('email')) {
+      throw new ForbiddenException(
+        'Cannot change email via this endpoint — use /email-change',
+      );
+    }
+
+    if (forbiddenFields.length) {
+      throw new ForbiddenException(
+        `You are not allowed to update: ${forbiddenFields.join(', ')}`,
+      );
+    }
+
+    const user = await this.repo.findOneBy({ id: userId });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (dto.email !== undefined) {
+      const existing = await this.findByEmail(dto.email);
+      if (existing && existing.id !== userId) {
+        throw new ConflictException('Email already registered');
+      }
+    }
+
+    this.repo.merge(user, dto);
+
+    const updatedUser = await this.repo.save(user);
+
+    this.logger.log({
+      event: 'users.profile.updated',
+      actorUserId: access.actorUserId,
+      targetUserId: userId,
+      fields: requestedFields,
+      result: 200,
+    });
+
+    return plainToInstance(UserProfileDto, updatedUser, {
+      excludeExtraneousValues: true,
+    });
+  }
+
+  @Transactional()
+  async initiateEmailChange(
+    userId: string,
+    newEmail: string,
+  ): Promise<{ requiresConfirmation: true; method: EmailVerificationMethod }> {
+    const user = await this.findById(userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.email === newEmail) {
+      throw new BadRequestException('New email must be different');
+    }
+
+    const existing = await this.findByEmail(newEmail);
+    if (existing) {
+      throw new ConflictException('Email already registered');
+    }
+
+    user.pendingEmail = newEmail;
+    await this.repo.save(user);
+
+    const { method } = await this.emailVerificationService.issueAndSend(
+      user.id,
+      EmailVerificationPurpose.EMAIL_CHANGE,
+      newEmail,
+    );
+
+    this.logger.log({
+      event: 'users.email_change.initiated',
+      userId: user.id,
+    });
+
+    return { requiresConfirmation: true, method };
+  }
+
+  @Transactional()
+  async confirmEmailChange(
+    userId: string,
+    code: string,
+  ): Promise<{ email: string }> {
+    const user = await this.findById(userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (!user.pendingEmail) {
+      throw new NotFoundException('No pending email change');
+    }
+
+    await this.emailVerificationService.confirm(
+      user.id,
+      code,
+      EmailVerificationPurpose.EMAIL_CHANGE,
+    );
+
+    user.email = user.pendingEmail;
+    user.pendingEmail = null;
+    await this.repo.save(user);
+
+    this.logger.log({
+      event: 'users.email_change.confirmed',
+      userId: user.id,
+    });
+
+    return { email: user.email };
+  }
+
+  @Transactional()
+  async requestDelete(
+    userId: string,
+    reason?: string,
+  ): Promise<{ requiresConfirmation: true; method: EmailVerificationMethod }> {
+    const user = await this.findById(userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.deletedAt) {
+      throw new ConflictException('User already deleted');
+    }
+
+    const { method } = await this.emailVerificationService.issueAndSend(
+      user.id,
+      EmailVerificationPurpose.DELETE_ACCOUNT,
+      user.email,
+    );
+
+    this.logger.log({
+      event: 'users.delete.requested',
+      userId: user.id,
+      reason,
+    });
+
+    return { requiresConfirmation: true, method };
+  }
+
+  @Transactional()
+  async confirmDelete(userId: string, code: string): Promise<{ deleted: true }> {
+    const user = await this.findById(userId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    try {
+      await this.emailVerificationService.confirm(
+        user.id,
+        code,
+        EmailVerificationPurpose.DELETE_ACCOUNT,
+      );
+    } catch (error) {
+      this.logger.warn({
+        event: 'users.delete.failed',
+        userId: user.id,
+      });
+      throw error;
+    }
+
+    await this.anonymizeUser(user);
+
+    this.logger.log({
+      event: 'users.delete.confirmed',
+      userId: user.id,
+    });
+
+    return { deleted: true };
+  }
+
+  @Transactional()
+  async deleteUserByPermission(
+    targetUserId: string,
+    actorUserId: string,
+  ): Promise<{ deleted: true }> {
+    if (actorUserId === targetUserId) {
+      throw new ForbiddenException(
+        'Use POST /users/:id/delete-request to delete your own account',
+      );
+    }
+
+    const user = await this.findById(targetUserId);
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.deletedAt) {
+      throw new ConflictException('User already deleted');
+    }
+
+    await this.anonymizeUser(user);
+
+    this.logger.log({
+      event: 'users.delete.admin_executed',
+      actorUserId,
+      targetUserId: user.id,
+    });
+
+    return { deleted: true };
   }
 
   /**

@@ -8,8 +8,8 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { EmailVerificationMethod } from '../email-verification-method.enum';
-import { EmailVerificationPurpose } from '../email-verification-purpose.enum';
+import { EmailVerificationMethod } from '../../../core/email-verification/email-verification-method.enum';
+import { EmailVerificationPurpose } from '../../../core/email-verification/email-verification-purpose.enum';
 
 @Entity({ name: 'email_verifications' })
 @Index(['userId', 'purpose'])

@@ -1,13 +1,23 @@
-import { Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Test, TestingModule } from '@nestjs/testing';
-import { Repository } from 'typeorm';
+import { FindOneOptions, Repository } from 'typeorm';
 
 import { SelfOrPermissionAccess } from '@/core/self-or-permission/self-or-permission.types';
 import { Role } from '@/modules/rbac/entities/role.entity';
+import { EmailVerificationMethod } from '@/core/email-verification/email-verification-method.enum';
+import { EmailVerificationPurpose } from '@/core/email-verification/email-verification-purpose.enum';
+import { EmailVerificationService } from '@/core/email-verification/email-verification.service';
 
 import { User } from '../entities/user.entity';
 import { UserProfileFieldsPolicy } from '../services/user-profile-policy.service';
+import { UserUpdateFieldsPolicy } from '../services/user-update-fields-policy.service';
 import { UsersService } from '../services/users.service';
 
 // `recordFailedLoginAttempt` is decorated with `@Transactional()`, which needs
@@ -28,9 +38,16 @@ describe('UsersService', () => {
 
   const usersRepoMock = {
     findOne: vi.fn<Repository<User>['findOne']>(),
+    findOneBy: vi.fn<Repository<User>['findOneBy']>(),
+    merge: vi.fn<Repository<User>['merge']>(),
+    save: vi.fn<Repository<User>['save']>(),
   };
   const rolesRepoMock = {
     findOneBy: vi.fn<Repository<Role>['findOneBy']>(),
+  };
+  const emailVerificationServiceMock = {
+    issueAndSend: vi.fn<EmailVerificationService['issueAndSend']>(),
+    confirm: vi.fn<EmailVerificationService['confirm']>(),
   };
 
   const buildUser = (overrides: Partial<User> = {}): User =>
@@ -39,12 +56,14 @@ describe('UsersService', () => {
       email: 'user@example.com',
       photo: 'https://example.com/photo.jpg',
       passwordHash: 'hashed-password',
+      pendingEmail: null,
       isEmailVerified: true,
       createdAt: new Date('2026-09-09T10:00:00.000Z'),
       updatedAt: new Date('2026-09-09T10:00:00.000Z'),
       failedLoginAttempts: 3,
       lockedUntil: new Date('2026-09-10T10:00:00.000Z'),
       tokenVersion: 7,
+      deletedAt: null,
       roles: [],
       ...overrides,
     }) as User;
@@ -65,13 +84,24 @@ describe('UsersService', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    usersRepoMock.merge.mockImplementation((entity: User, dto: Partial<User>) =>
+      Object.assign(entity, dto),
+    );
+    usersRepoMock.save.mockImplementation((entity: User) =>
+      Promise.resolve(entity),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         UserProfileFieldsPolicy,
+        UserUpdateFieldsPolicy,
         { provide: getRepositoryToken(User), useValue: usersRepoMock },
         { provide: getRepositoryToken(Role), useValue: rolesRepoMock },
+        {
+          provide: EmailVerificationService,
+          useValue: emailVerificationServiceMock,
+        },
       ],
     }).compile();
 
@@ -200,6 +230,465 @@ describe('UsersService', () => {
         viewerUserId: 'admin-1',
         targetUserId: 'user-2',
         result: 200,
+      });
+    });
+  });
+
+  describe('updateUser', () => {
+    const selfUpdateAccess = (userId: string): SelfOrPermissionAccess => ({
+      type: 'self',
+      actorUserId: userId,
+      resource: 'users',
+      action: 'update',
+    });
+
+    const adminUpdateAccess = (actorUserId: string): SelfOrPermissionAccess => ({
+      type: 'permission',
+      actorUserId,
+      resource: 'users',
+      action: 'update',
+    });
+
+    it('rejects self passing email with a specific 403 hinting at /email-change, before touching the database', async () => {
+      await expect(
+        service.updateUser(
+          'user-1',
+          { email: 'new@example.com' },
+          selfUpdateAccess('user-1'),
+        ),
+      ).rejects.toThrow(
+        new ForbiddenException(
+          'Cannot change email via this endpoint — use /email-change',
+        ),
+      );
+
+      expect(usersRepoMock.findOneBy).not.toHaveBeenCalled();
+    });
+
+    it('lets self update photo without touching email', async () => {
+      const user = buildUser();
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+
+      const result = await service.updateUser(
+        'user-1',
+        { photo: 'https://example.com/new.jpg' },
+        selfUpdateAccess('user-1'),
+      );
+
+      expect(result.photo).toBe('https://example.com/new.jpg');
+      expect(result.email).toBe('user@example.com');
+    });
+
+    it('throws NotFoundException when the target user does not exist', async () => {
+      usersRepoMock.findOneBy.mockResolvedValue(null);
+
+      await expect(
+        service.updateUser(
+          'missing-id',
+          { photo: 'https://example.com/new.jpg' },
+          selfUpdateAccess('missing-id'),
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('lets an admin (via grant, not self) change email directly, without a confirmation flow', async () => {
+      const user = buildUser();
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+      usersRepoMock.findOne.mockResolvedValue(null); // no other user has that email
+
+      const result = await service.updateUser(
+        'user-1',
+        { email: 'new@example.com' },
+        adminUpdateAccess('admin-1'),
+      );
+
+      expect(result.email).toBe('new@example.com');
+      expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
+    });
+
+    it('rejects an admin email change with 409 when the email is already taken by someone else', async () => {
+      const user = buildUser();
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+      usersRepoMock.findOne.mockResolvedValue(buildUser({ id: 'other-user' }));
+
+      await expect(
+        service.updateUser(
+          'user-1',
+          { email: 'taken@example.com' },
+          adminUpdateAccess('admin-1'),
+        ),
+      ).rejects.toThrow(ConflictException);
+
+      expect(usersRepoMock.save).not.toHaveBeenCalled();
+    });
+
+    it('does not treat the user’s own current email as a conflict', async () => {
+      const user = buildUser();
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+      usersRepoMock.findOne.mockResolvedValue(user); // findByEmail resolves to the same user
+
+      const result = await service.updateUser(
+        'user-1',
+        { email: user.email },
+        adminUpdateAccess('admin-1'),
+      );
+
+      expect(result.email).toBe(user.email);
+    });
+
+    it('does not clobber untouched fields on a partial patch (regression)', async () => {
+      const user = buildUser({ photo: 'https://example.com/old.jpg' });
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+
+      const result = await service.updateUser(
+        'user-1',
+        { photo: 'https://example.com/new.jpg' },
+        selfUpdateAccess('user-1'),
+      );
+
+      expect(result.email).toBe('user@example.com');
+      expect(result.isEmailVerified).toBe(true);
+    });
+
+    it('logs users.profile.updated with only field names, not values', async () => {
+      const user = buildUser();
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+      const logSpy = vi.spyOn(Logger.prototype, 'log');
+
+      await service.updateUser(
+        'user-1',
+        { photo: 'https://example.com/new.jpg' },
+        selfUpdateAccess('user-1'),
+      );
+
+      expect(logSpy).toHaveBeenCalledWith({
+        event: 'users.profile.updated',
+        actorUserId: 'user-1',
+        targetUserId: 'user-1',
+        fields: ['photo'],
+        result: 200,
+      });
+    });
+  });
+
+  describe('initiateEmailChange', () => {
+    it('throws NotFoundException when the user does not exist', async () => {
+      usersRepoMock.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.initiateEmailChange('missing-id', 'new@example.com'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects with 400 when newEmail matches the current email', async () => {
+      usersRepoMock.findOne.mockResolvedValue(buildUser());
+
+      await expect(
+        service.initiateEmailChange('user-1', 'user@example.com'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('rejects with 409 when newEmail is already registered, without setting pendingEmail', async () => {
+      const user = buildUser();
+      usersRepoMock.findOne.mockImplementation(
+        ({ where }: FindOneOptions<User>) =>
+          Promise.resolve(
+            'id' in (where as object) ? user : buildUser({ id: 'other-user' }),
+          ),
+      );
+
+      await expect(
+        service.initiateEmailChange('user-1', 'taken@example.com'),
+      ).rejects.toThrow(ConflictException);
+
+      expect(usersRepoMock.save).not.toHaveBeenCalled();
+    });
+
+    it('sets pendingEmail, issues a code for EMAIL_CHANGE and sends it to the new address', async () => {
+      const user = buildUser();
+      usersRepoMock.findOne.mockImplementation(({ where }: FindOneOptions<User>) =>
+        Promise.resolve('id' in (where as object) ? user : null),
+      );
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
+        method: EmailVerificationMethod.OTP,
+      });
+
+      const result = await service.initiateEmailChange(
+        'user-1',
+        'new@example.com',
+      );
+
+      expect(result).toEqual({
+        requiresConfirmation: true,
+        method: EmailVerificationMethod.OTP,
+      });
+      expect(user.pendingEmail).toBe('new@example.com');
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
+        'user-1',
+        EmailVerificationPurpose.EMAIL_CHANGE,
+        'new@example.com',
+      );
+    });
+  });
+
+  describe('confirmEmailChange', () => {
+    it('throws NotFoundException when the user does not exist', async () => {
+      usersRepoMock.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.confirmEmailChange('missing-id', '123456'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws NotFoundException when there is no pending email change', async () => {
+      usersRepoMock.findOne.mockResolvedValue(buildUser({ pendingEmail: null }));
+
+      await expect(
+        service.confirmEmailChange('user-1', '123456'),
+      ).rejects.toThrow(NotFoundException);
+      expect(emailVerificationServiceMock.confirm).not.toHaveBeenCalled();
+    });
+
+    it('promotes pendingEmail to email and clears pendingEmail on a valid code', async () => {
+      const user = buildUser({ pendingEmail: 'new@example.com' });
+      usersRepoMock.findOne.mockResolvedValue(user);
+      emailVerificationServiceMock.confirm.mockResolvedValue(undefined);
+
+      const result = await service.confirmEmailChange('user-1', '123456');
+
+      expect(emailVerificationServiceMock.confirm).toHaveBeenCalledWith(
+        'user-1',
+        '123456',
+        EmailVerificationPurpose.EMAIL_CHANGE,
+      );
+      expect(user.email).toBe('new@example.com');
+      expect(user.pendingEmail).toBeNull();
+      expect(result).toEqual({ email: 'new@example.com' });
+    });
+
+    it('does not change the email when the code is rejected', async () => {
+      const user = buildUser({ pendingEmail: 'new@example.com' });
+      usersRepoMock.findOne.mockResolvedValue(user);
+      emailVerificationServiceMock.confirm.mockRejectedValue(
+        new BadRequestException('Invalid confirmation code'),
+      );
+
+      await expect(
+        service.confirmEmailChange('user-1', 'wrong-code'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(user.email).toBe('user@example.com');
+      expect(user.pendingEmail).toBe('new@example.com');
+      expect(usersRepoMock.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('requestDelete', () => {
+    it('throws NotFoundException when the user does not exist', async () => {
+      usersRepoMock.findOne.mockResolvedValue(null);
+
+      await expect(service.requestDelete('missing-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('rejects with 409 when the user is already deleted, without issuing a code', async () => {
+      usersRepoMock.findOne.mockResolvedValue(
+        buildUser({ deletedAt: new Date('2026-09-20T00:00:00.000Z') }),
+      );
+
+      await expect(service.requestDelete('user-1')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
+    });
+
+    it('sends the confirmation code to the current email, not a new one', async () => {
+      usersRepoMock.findOne.mockResolvedValue(buildUser());
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
+        method: EmailVerificationMethod.OTP,
+      });
+
+      const result = await service.requestDelete('user-1', 'no longer need it');
+
+      expect(result).toEqual({
+        requiresConfirmation: true,
+        method: EmailVerificationMethod.OTP,
+      });
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
+        'user-1',
+        EmailVerificationPurpose.DELETE_ACCOUNT,
+        'user@example.com',
+      );
+    });
+
+    it('logs users.delete.requested with the reason, not any PII', async () => {
+      usersRepoMock.findOne.mockResolvedValue(buildUser());
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
+        method: EmailVerificationMethod.OTP,
+      });
+      const logSpy = vi.spyOn(Logger.prototype, 'log');
+
+      await service.requestDelete('user-1', 'no longer need it');
+
+      expect(logSpy).toHaveBeenCalledWith({
+        event: 'users.delete.requested',
+        userId: 'user-1',
+        reason: 'no longer need it',
+      });
+    });
+  });
+
+  describe('confirmDelete', () => {
+    it('throws NotFoundException when the user does not exist', async () => {
+      usersRepoMock.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.confirmDelete('missing-id', '123456'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('anonymizes the fixed field set, sets deletedAt, and bumps tokenVersion by exactly 1 on a valid code', async () => {
+      const user = buildUser({
+        tokenVersion: 7,
+        photo: 'https://example.com/photo.jpg',
+        passwordHash: 'hashed-password',
+        pendingEmail: 'pending@example.com',
+      });
+      usersRepoMock.findOne.mockResolvedValue(user);
+      emailVerificationServiceMock.confirm.mockResolvedValue(undefined);
+
+      const result = await service.confirmDelete('user-1', '123456');
+
+      expect(emailVerificationServiceMock.confirm).toHaveBeenCalledWith(
+        'user-1',
+        '123456',
+        EmailVerificationPurpose.DELETE_ACCOUNT,
+      );
+      expect(user.email).toBe('deleted-user-1@deleted.local');
+      expect(user.photo).toBeNull();
+      expect(user.passwordHash).toBe('');
+      expect(user.pendingEmail).toBeNull();
+      expect(user.deletedAt).toBeInstanceOf(Date);
+      expect(user.tokenVersion).toBe(8);
+      expect(result).toEqual({ deleted: true });
+    });
+
+    it('does not touch id, createdAt, or roles', async () => {
+      const roles = [{ id: 'role-1', name: 'user' } as User['roles'][number]];
+      const user = buildUser({ roles });
+      usersRepoMock.findOne.mockResolvedValue(user);
+      emailVerificationServiceMock.confirm.mockResolvedValue(undefined);
+
+      await service.confirmDelete('user-1', '123456');
+
+      expect(user.id).toBe('user-1');
+      expect(user.createdAt).toEqual(new Date('2026-09-09T10:00:00.000Z'));
+      expect(user.roles).toBe(roles);
+    });
+
+    it('does not anonymize and rethrows when the code is rejected', async () => {
+      const user = buildUser();
+      usersRepoMock.findOne.mockResolvedValue(user);
+      emailVerificationServiceMock.confirm.mockRejectedValue(
+        new BadRequestException('Invalid confirmation code'),
+      );
+
+      await expect(
+        service.confirmDelete('user-1', 'wrong-code'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(user.deletedAt).toBeNull();
+      expect(user.email).toBe('user@example.com');
+      expect(usersRepoMock.save).not.toHaveBeenCalled();
+    });
+
+    it('logs users.delete.failed (userId only) when confirmation fails', async () => {
+      usersRepoMock.findOne.mockResolvedValue(buildUser());
+      emailVerificationServiceMock.confirm.mockRejectedValue(
+        new BadRequestException('Invalid confirmation code'),
+      );
+      const warnSpy = vi.spyOn(Logger.prototype, 'warn');
+
+      await expect(
+        service.confirmDelete('user-1', 'wrong-code'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(warnSpy).toHaveBeenCalledWith({
+        event: 'users.delete.failed',
+        userId: 'user-1',
+      });
+    });
+
+    it('logs users.delete.confirmed on success', async () => {
+      usersRepoMock.findOne.mockResolvedValue(buildUser());
+      emailVerificationServiceMock.confirm.mockResolvedValue(undefined);
+      const logSpy = vi.spyOn(Logger.prototype, 'log');
+
+      await service.confirmDelete('user-1', '123456');
+
+      expect(logSpy).toHaveBeenCalledWith({
+        event: 'users.delete.confirmed',
+        userId: 'user-1',
+      });
+    });
+  });
+
+  describe('deleteUserByPermission', () => {
+    it('rejects self-targeting with a specific message, before touching the database', async () => {
+      await expect(
+        service.deleteUserByPermission('user-1', 'user-1'),
+      ).rejects.toThrow(
+        new ForbiddenException(
+          'Use POST /users/:id/delete-request to delete your own account',
+        ),
+      );
+
+      expect(usersRepoMock.findOne).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the target does not exist', async () => {
+      usersRepoMock.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.deleteUserByPermission('missing-id', 'admin-1'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects with 409 when the target is already deleted', async () => {
+      usersRepoMock.findOne.mockResolvedValue(
+        buildUser({ deletedAt: new Date('2026-09-20T00:00:00.000Z') }),
+      );
+
+      await expect(
+        service.deleteUserByPermission('user-1', 'admin-1'),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('anonymizes the target, sets deletedAt, and bumps tokenVersion by exactly 1', async () => {
+      const user = buildUser({ tokenVersion: 7 });
+      usersRepoMock.findOne.mockResolvedValue(user);
+
+      const result = await service.deleteUserByPermission('user-1', 'admin-1');
+
+      expect(user.email).toBe('deleted-user-1@deleted.local');
+      expect(user.photo).toBeNull();
+      expect(user.passwordHash).toBe('');
+      expect(user.deletedAt).toBeInstanceOf(Date);
+      expect(user.tokenVersion).toBe(8);
+      expect(result).toEqual({ deleted: true });
+    });
+
+    it('logs users.delete.admin_executed with both actor and target ids, no PII', async () => {
+      usersRepoMock.findOne.mockResolvedValue(buildUser());
+      const logSpy = vi.spyOn(Logger.prototype, 'log');
+
+      await service.deleteUserByPermission('user-1', 'admin-1');
+
+      expect(logSpy).toHaveBeenCalledWith({
+        event: 'users.delete.admin_executed',
+        actorUserId: 'admin-1',
+        targetUserId: 'user-1',
       });
     });
   });
