@@ -652,6 +652,21 @@ describe('UsersService', () => {
       expect(usersRepoMock.findOne).not.toHaveBeenCalled();
     });
 
+    it('rejects self-targeting when the target id differs from the actor id only in letter case', async () => {
+      const actorId = '3f2b8c1e-9d4a-4e6b-8f7a-1c2d3e4f5a6b';
+
+      await expect(
+        service.deleteUserByPermission(actorId.toUpperCase(), actorId),
+      ).rejects.toThrow(
+        new ForbiddenException(
+          'Use POST /users/:id/delete-request to delete your own account',
+        ),
+      );
+
+      expect(usersRepoMock.findOne).not.toHaveBeenCalled();
+      expect(usersRepoMock.save).not.toHaveBeenCalled();
+    });
+
     it('throws NotFoundException when the target does not exist', async () => {
       usersRepoMock.findOne.mockResolvedValue(null);
 

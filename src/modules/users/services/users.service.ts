@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Propagation, Transactional } from 'typeorm-transactional';
 import { Repository } from 'typeorm';
 
+import { isSameId } from '@/common/utils/is-same-id';
 import { DEFAULT_ROLE_NAME } from '@/modules/rbac/rbac.constants';
 import { Role } from '@/modules/rbac/entities/role.entity';
 
@@ -190,7 +191,7 @@ export class UsersService {
 
     if (dto.email !== undefined) {
       const existing = await this.findByEmail(dto.email);
-      if (existing && existing.id !== userId) {
+      if (existing && !isSameId(existing.id, userId)) {
         throw new ConflictException('Email already registered');
       }
     }
@@ -352,7 +353,7 @@ export class UsersService {
     targetUserId: string,
     actorUserId: string,
   ): Promise<{ deleted: true }> {
-    if (actorUserId.toLowerCase() === targetUserId.toLowerCase()) {
+    if (isSameId(actorUserId, targetUserId)) {
       throw new ForbiddenException(
         'Use POST /users/:id/delete-request to delete your own account',
       );

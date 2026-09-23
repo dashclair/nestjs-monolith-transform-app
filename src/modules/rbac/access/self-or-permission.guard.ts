@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
+import { isSameId } from '@/common/utils/is-same-id';
+
 import { RbacConfigService } from '../services/rbac-config.service';
 import {
   SELF_OR_PERMISSION_KEY,
@@ -41,7 +43,7 @@ export class SelfOrPermissionGuard implements CanActivate {
 
     const targetId = request.params[meta.paramName];
 
-    if (user.userId === targetId) {
+    if (isSameId(user.userId, targetId)) {
       request.selfOrPermissionAccess = {
         type: 'self',
         resource: meta.resource,
