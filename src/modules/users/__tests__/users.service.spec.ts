@@ -267,6 +267,31 @@ describe('UsersService', () => {
       expect(usersRepoMock.findOneBy).not.toHaveBeenCalled();
     });
 
+    it('404s on a deleted (anonymized) user so an admin cannot write PII or claim an email back into it', async () => {
+      const user = buildUser({
+        email: 'deleted-user-1@deleted.local',
+        photo: null,
+        deletedAt: new Date('2026-09-20T00:00:00.000Z'),
+      });
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+
+      await expect(
+        service.updateUser(
+          'user-1',
+          {
+            email: 'real.person@example.com',
+            photo: 'https://example.com/restored.jpg',
+          },
+          adminUpdateAccess('admin-1'),
+        ),
+      ).rejects.toThrow(new NotFoundException('User not found'));
+
+      expect(usersRepoMock.findOne).not.toHaveBeenCalled();
+      expect(usersRepoMock.save).not.toHaveBeenCalled();
+      expect(user.email).toBe('deleted-user-1@deleted.local');
+      expect(user.photo).toBeNull();
+    });
+
     it('lets self update photo without touching email', async () => {
       const user = buildUser();
       usersRepoMock.findOneBy.mockResolvedValue(user);
@@ -456,7 +481,10 @@ describe('UsersService', () => {
 
     it('promotes pendingEmail to email and clears pendingEmail on a valid code', async () => {
       const user = buildUser({ pendingEmail: 'new@example.com' });
-      usersRepoMock.findOne.mockResolvedValue(user);
+      // findById → user, findByEmail(pendingEmail) → address still free
+      usersRepoMock.findOne
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(null);
       emailVerificationServiceMock.confirm.mockResolvedValue(undefined);
 
       const result = await service.confirmEmailChange('user-1', '123456');
@@ -473,7 +501,9 @@ describe('UsersService', () => {
 
     it('does not change the email when the code is rejected', async () => {
       const user = buildUser({ pendingEmail: 'new@example.com' });
-      usersRepoMock.findOne.mockResolvedValue(user);
+      usersRepoMock.findOne
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(null);
       emailVerificationServiceMock.confirm.mockRejectedValue(
         new BadRequestException('Invalid confirmation code'),
       );
@@ -485,6 +515,70 @@ describe('UsersService', () => {
       expect(user.email).toBe('user@example.com');
       expect(user.pendingEmail).toBe('new@example.com');
       expect(usersRepoMock.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects with 409 without consuming the code when pendingEmail was taken by another user since initiation', async () => {
+      const user = buildUser({ pendingEmail: 'new@example.com' });
+      usersRepoMock.findOne
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(
+          buildUser({ id: 'user-2', email: 'new@example.com' }),
+        );
+
+      await expect(
+        service.confirmEmailChange('user-1', '123456'),
+      ).rejects.toThrow(new ConflictException('Email already registered'));
+
+      expect(emailVerificationServiceMock.confirm).not.toHaveBeenCalled();
+      expect(usersRepoMock.save).not.toHaveBeenCalled();
+      expect(user.email).toBe('user@example.com');
+    });
+
+    it('does not treat the user themselves as a conflict when the ids differ only in letter case', async () => {
+      const user = buildUser({ pendingEmail: 'new@example.com' });
+      usersRepoMock.findOne
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(
+          buildUser({ id: user.id.toUpperCase(), email: 'new@example.com' }),
+        );
+      emailVerificationServiceMock.confirm.mockResolvedValue(undefined);
+
+      const result = await service.confirmEmailChange(user.id, '123456');
+
+      expect(result).toEqual({ email: 'new@example.com' });
+    });
+
+    it('maps a unique-constraint violation on save (lost race) to 409', async () => {
+      const user = buildUser({ pendingEmail: 'new@example.com' });
+      usersRepoMock.findOne
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(null);
+      emailVerificationServiceMock.confirm.mockResolvedValue(undefined);
+      usersRepoMock.save.mockRejectedValueOnce(
+        Object.assign(new Error('duplicate key value'), {
+          driverError: { code: '23505' },
+        }),
+      );
+
+      await expect(
+        service.confirmEmailChange('user-1', '123456'),
+      ).rejects.toThrow(new ConflictException('Email already registered'));
+    });
+
+    it('rethrows non-unique database errors on save unchanged', async () => {
+      const user = buildUser({ pendingEmail: 'new@example.com' });
+      usersRepoMock.findOne
+        .mockResolvedValueOnce(user)
+        .mockResolvedValueOnce(null);
+      emailVerificationServiceMock.confirm.mockResolvedValue(undefined);
+      const dbError = Object.assign(new Error('connection lost'), {
+        driverError: { code: '08006' },
+      });
+      usersRepoMock.save.mockRejectedValueOnce(dbError);
+
+      await expect(service.confirmEmailChange('user-1', '123456')).rejects.toBe(
+        dbError,
+      );
     });
   });
 
@@ -551,6 +645,18 @@ describe('UsersService', () => {
       await expect(
         service.confirmDelete('missing-id', '123456'),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rejects with 409 when the user is already deleted, without consuming the code', async () => {
+      usersRepoMock.findOne.mockResolvedValue(
+        buildUser({ deletedAt: new Date('2026-09-20T00:00:00.000Z') }),
+      );
+
+      await expect(service.confirmDelete('user-1', '123456')).rejects.toThrow(
+        new ConflictException('User already deleted'),
+      );
+      expect(emailVerificationServiceMock.confirm).not.toHaveBeenCalled();
+      expect(usersRepoMock.save).not.toHaveBeenCalled();
     });
 
     it('anonymizes the fixed field set, sets deletedAt, and bumps tokenVersion by exactly 1 on a valid code', async () => {
@@ -683,6 +789,17 @@ describe('UsersService', () => {
       await expect(
         service.deleteUserByPermission('user-1', 'admin-1'),
       ).rejects.toThrow(ConflictException);
+    });
+
+    it('treats a user whose deletedAt was not loaded (undefined) as alive, not as already deleted', async () => {
+      // Guards the truthy `if (user.deletedAt)` style: a `!== null` check
+      // would misreport a partially-selected live user as deleted.
+      const user = buildUser({ deletedAt: undefined as unknown as null });
+      usersRepoMock.findOne.mockResolvedValue(user);
+
+      await expect(
+        service.deleteUserByPermission('user-1', 'admin-1'),
+      ).resolves.toEqual({ deleted: true });
     });
 
     it('anonymizes the target, sets deletedAt, and bumps tokenVersion by exactly 1', async () => {

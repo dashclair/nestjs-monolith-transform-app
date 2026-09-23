@@ -115,6 +115,15 @@ export class AuthService {
       throw new UnauthorizedException(AuthService.INVALID_CREDENTIALS_MESSAGE);
     }
 
+    if (user.deletedAt) {
+      this.logger.warn({
+        event: 'auth.login.failed',
+        userId: user.id,
+        reason: 'user_deleted',
+      });
+      throw new UnauthorizedException(AuthService.INVALID_CREDENTIALS_MESSAGE);
+    }
+
     if (user.lockedUntil && user.lockedUntil > new Date()) {
       this.logger.warn({ event: 'auth.login.locked', userId: user.id });
       throw new HttpException(

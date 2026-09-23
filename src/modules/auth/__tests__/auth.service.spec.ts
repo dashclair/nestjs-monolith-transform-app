@@ -282,6 +282,25 @@ describe('AuthService', () => {
       expect(passwordServiceMock.verify).not.toHaveBeenCalled();
     });
 
+    it('should throw the same 401 as an unknown email for a deleted user, without calling verify()', async () => {
+      usersServiceMock.findByEmail.mockResolvedValue(null);
+      const unknownEmailError = (await service
+        .login(loginDto)
+        .catch((error: Error) => error)) as Error;
+
+      usersServiceMock.findByEmail.mockResolvedValue(
+        buildUser({ deletedAt: new Date(), passwordHash: '' }),
+      );
+      const deletedUserError = (await service
+        .login(loginDto)
+        .catch((error: Error) => error)) as Error;
+
+      expect(deletedUserError).toBeInstanceOf(UnauthorizedException);
+      expect(deletedUserError.message).toBe(unknownEmailError.message);
+      expect(passwordServiceMock.verify).not.toHaveBeenCalled();
+      expect(usersServiceMock.recordFailedLoginAttempt).not.toHaveBeenCalled();
+    });
+
     it('should throw 429 without checking the password when the account is locked', async () => {
       const user = buildUser({ lockedUntil: new Date(Date.now() + 60_000) });
       usersServiceMock.findByEmail.mockResolvedValue(user);

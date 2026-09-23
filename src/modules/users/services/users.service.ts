@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Propagation, Transactional } from 'typeorm-transactional';
 import { Repository } from 'typeorm';
 
+import { isUniqueViolation } from '@/common/database/is-unique-violation';
 import { isSameId } from '@/common/utils/is-same-id';
 import { DEFAULT_ROLE_NAME } from '@/modules/rbac/rbac.constants';
 import { Role } from '@/modules/rbac/entities/role.entity';
@@ -185,7 +186,7 @@ export class UsersService {
 
     const user = await this.repo.findOneBy({ id: userId });
 
-    if (!user) {
+    if (!user || user.deletedAt) {
       throw new NotFoundException('User not found');
     }
 
@@ -265,6 +266,14 @@ export class UsersService {
       throw new NotFoundException('No pending email change');
     }
 
+    // The address was free at initiateEmailChange(), but someone may have
+    // registered it (or an admin assigned it) since. Checked before confirm()
+    // so the code isn't consumed on a request that can't succeed.
+    const existing = await this.findByEmail(user.pendingEmail);
+    if (existing && !isSameId(existing.id, user.id)) {
+      throw new ConflictException('Email already registered');
+    }
+
     await this.emailVerificationService.confirm(
       user.id,
       code,
@@ -273,7 +282,15 @@ export class UsersService {
 
     user.email = user.pendingEmail;
     user.pendingEmail = null;
-    await this.repo.save(user);
+    try {
+      await this.repo.save(user);
+    } catch (error) {
+      // Lost the race between the check above and this write.
+      if (isUniqueViolation(error)) {
+        throw new ConflictException('Email already registered');
+      }
+      throw error;
+    }
 
     this.logger.log({
       event: 'users.email_change.confirmed',
@@ -322,6 +339,10 @@ export class UsersService {
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (user.deletedAt) {
+      throw new ConflictException('User already deleted');
     }
 
     try {
