@@ -9,7 +9,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Test, TestingModule } from '@nestjs/testing';
 import { FindOneOptions, Repository } from 'typeorm';
 
-import { SelfOrPermissionAccess } from '@/core/self-or-permission/self-or-permission.types';
+import { SelfOrPermissionAccess } from '@/modules/rbac';
 import { Role } from '@/modules/rbac/entities/role.entity';
 import { EmailVerificationMethod } from '@/core/email-verification/email-verification-method.enum';
 import { EmailVerificationPurpose } from '@/core/email-verification/email-verification-purpose.enum';

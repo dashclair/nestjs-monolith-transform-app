@@ -9,7 +9,7 @@ import { Role } from '@/modules/rbac/entities/role.entity';
 import { plainToInstance } from 'class-transformer';
 import { User } from '../entities/user.entity';
 import { UserProfileDto } from '../dto/user-profile.dto';
-import type { SelfOrPermissionAccess } from '@/core/self-or-permission/self-or-permission.types';
+import type { SelfOrPermissionAccess } from '@/modules/rbac';
 import { UserProfileFieldsPolicy } from './user-profile-policy.service';
 import { UserProfileField } from '../types/user-profile-policy.types';
 import { UpdateUserDto } from '../dto/update-user.dto';

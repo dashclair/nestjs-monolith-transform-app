@@ -1,4 +1,4 @@
-import { SelfOrPermissionAccess } from "@/core/self-or-permission/self-or-permission.types";
+import { SelfOrPermissionAccess } from "@/modules/rbac";
 import { Injectable } from "@nestjs/common";
 import { UpdateUserDto } from "../dto/update-user.dto";
 

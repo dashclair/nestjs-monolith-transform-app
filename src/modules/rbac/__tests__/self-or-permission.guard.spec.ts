@@ -8,8 +8,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { RequestUser } from '@/core/auth/auth.types';
 
-import { SelfOrPermissionGuard } from '../self-or-permission.guard'; 
-import { RbacConfigService } from '../../../modules/rbac/services/rbac-config.service';
+import { SelfOrPermissionGuard } from '../access/self-or-permission.guard';
+import { RbacConfigService } from '../services/rbac-config.service';
 
 describe('SelfOrPermissionGuard', () => {
   let guard: SelfOrPermissionGuard;

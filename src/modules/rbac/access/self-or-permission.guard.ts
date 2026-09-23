@@ -4,17 +4,16 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
-  SetMetadata,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
-import { RbacConfigService } from '@/modules/rbac/services/rbac-config.service';
-import { SELF_OR_PERMISSION_KEY, SelfOrPermissionMeta } from './self-or-permission.decorator';
-
-import { RequestUser } from '@/core/auth/auth.types';
-import { SELF_ONLY_PARAM_KEY } from './self-only.guard';
-
+import { RbacConfigService } from '../services/rbac-config.service';
+import {
+  SELF_OR_PERMISSION_KEY,
+  SelfOrPermissionMeta,
+} from './self-or-permission.decorator';
+import { SelfOrPermissionRequest } from './self-or-permission.types';
 
 @Injectable()
 export class SelfOrPermissionGuard implements CanActivate {
@@ -23,7 +22,7 @@ export class SelfOrPermissionGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly rbacConfigService: RbacConfigService,
-  ) { }
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
     const meta = this.reflector.getAllAndOverride<SelfOrPermissionMeta>(
@@ -32,8 +31,10 @@ export class SelfOrPermissionGuard implements CanActivate {
     );
     if (!meta) return true;
 
-    const request = context.switchToHttp().getRequest();
-    const user = request.user as RequestUser | undefined;
+    const request = context
+      .switchToHttp()
+      .getRequest<SelfOrPermissionRequest>();
+    const user = request.user;
     if (!user) {
       throw new UnauthorizedException();
     }
@@ -48,8 +49,9 @@ export class SelfOrPermissionGuard implements CanActivate {
         action: meta.action,
       };
 
-      return true
-    };
+      return true;
+    }
+
     if (
       this.rbacConfigService.hasPermission(
         user.roles,
@@ -57,7 +59,6 @@ export class SelfOrPermissionGuard implements CanActivate {
         meta.action,
       )
     ) {
-
       request.selfOrPermissionAccess = {
         type: 'permission',
         actorUserId: user.userId,
@@ -77,10 +78,3 @@ export class SelfOrPermissionGuard implements CanActivate {
     throw new ForbiddenException();
   }
 }
-
-
-export const SelfOnly = (
-  paramName: string,
-  resource: string,
-  action: string,
-) => SetMetadata(SELF_ONLY_PARAM_KEY, { paramName });

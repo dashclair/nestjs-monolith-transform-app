@@ -1,4 +1,4 @@
-import { SelfOrPermissionAccess } from '@/core/self-or-permission/self-or-permission.types';
+import { SelfOrPermissionAccess } from '@/modules/rbac';
 
 import { UserProfileFieldsPolicy } from '../services/user-profile-policy.service';
 import { UserProfileField } from '../types/user-profile-policy.types';

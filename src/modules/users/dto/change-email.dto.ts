@@ -1,6 +1,6 @@
 import { IsEmail } from 'class-validator';
 
-import { NormalizeEmail } from '@/modules/auth/dto/normalize-email.decorator';
+import { NormalizeEmail } from '@/common/validation/normalize-email.decorator';
 
 export class ChangeEmailDto {
   @IsEmail()

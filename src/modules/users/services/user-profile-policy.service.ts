@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { UserProfileField } from "../types/user-profile-policy.types";
-import { SelfOrPermissionAccess } from "@/core/self-or-permission/self-or-permission.types";
+import { SelfOrPermissionAccess } from "@/modules/rbac";
 
 const SELF_PROFILE_FIELDS: UserProfileField[] = [
   UserProfileField.Id,

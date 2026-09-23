@@ -8,13 +8,13 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
-import { RequestUser } from '@/core/auth/auth.types';
+import { RequestWithUser } from '@/core/auth/auth.types';
 
+import { RbacConfigService } from '../services/rbac-config.service';
 import {
   REQUIRE_PERMISSION_KEY,
   RequirePermissionMeta,
-} from '../decorators/require-permission.decorator';
-import { RbacConfigService } from '../services/rbac-config.service';
+} from './require-permission.decorator';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -34,8 +34,8 @@ export class PermissionsGuard implements CanActivate {
       return true;
     }
 
-    const request = context.switchToHttp().getRequest();
-    const user = request.user as RequestUser | undefined;
+    const request = context.switchToHttp().getRequest<RequestWithUser>();
+    const user = request.user;
     if (!user) {
       throw new UnauthorizedException();
     }

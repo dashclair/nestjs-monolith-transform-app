@@ -4,8 +4,8 @@ import type { FastifyRequest } from 'fastify';
 
 import { RequestUser } from '@/core/auth/auth.types';
 
-import { RequirePermission } from './decorators/require-permission.decorator';
-import { PermissionsGuard } from './guards/permissions.guard';
+import { RequirePermission } from './access/require-permission.decorator';
+import { PermissionsGuard } from './access/permissions.guard';
 import { PermissionsService } from './services/permissions.service';
 import { CreatePermissionDto } from './dto/create-permission.dto';
 import { UpdatePermissionDto } from './dto/update-permission.dto';

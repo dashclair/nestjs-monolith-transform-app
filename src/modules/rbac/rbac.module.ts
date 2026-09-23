@@ -7,7 +7,8 @@ import { Role } from './entities/role.entity';
 import { GrantsController } from './grants.controller';
 import { PermissionsController } from './permissions.controller';
 import { RolesController } from './roles.controller';
-import { PermissionsGuard } from './guards/permissions.guard';
+import { PermissionsGuard } from './access/permissions.guard';
+import { SelfOrPermissionGuard } from './access/self-or-permission.guard';
 import { GrantsService } from './services/grants.service';
 import { PermissionsService } from './services/permissions.service';
 import { RbacConfigService } from './services/rbac-config.service';
@@ -19,10 +20,11 @@ import { RolesService } from './services/roles.service';
   providers: [
     RbacConfigService,
     PermissionsGuard,
+    SelfOrPermissionGuard,
     RolesService,
     PermissionsService,
     GrantsService,
   ],
-  exports: [RbacConfigService, PermissionsGuard],
+  exports: [RbacConfigService, PermissionsGuard, SelfOrPermissionGuard],
 })
 export class RbacModule {}

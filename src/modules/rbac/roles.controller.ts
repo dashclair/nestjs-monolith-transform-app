@@ -4,10 +4,10 @@ import type { FastifyRequest } from 'fastify';
 
 import { RequestUser } from '@/core/auth/auth.types';
 
-import { RequirePermission } from './decorators/require-permission.decorator';
+import { RequirePermission } from './access/require-permission.decorator';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
-import { PermissionsGuard } from './guards/permissions.guard';
+import { PermissionsGuard } from './access/permissions.guard';
 import { RolesService } from './services/roles.service';
 
 type AuthenticatedRequest = FastifyRequest & { user: RequestUser };

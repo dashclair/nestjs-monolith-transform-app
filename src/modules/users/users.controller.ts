@@ -2,24 +2,26 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPi
 import { ApiTags } from "@nestjs/swagger";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
-import { SelfOrPermission } from "../../core/self-or-permission/self-or-permission.decorator";
+import {
+    PermissionsGuard,
+    RequirePermission,
+    SelfOrPermission,
+    SelfOrPermissionAccessContext,
+    SelfOrPermissionGuard,
+    type SelfOrPermissionAccess,
+} from "@/modules/rbac";
 import { UserProfileDto } from "./dto/user-profile.dto";
 import { UsersService } from "./services/users.service";
 import { UsersListService } from "./services/users-list.service";
-import { SelfOrPermissionAccessContext } from "../../core/self-or-permission/self-or-permission-access.decorator";
-import { SelfOrPermissionGuard } from "../../core/self-or-permission/self-or-permission.guard";
-import type { SelfOrPermissionAccess } from "../../core/self-or-permission/self-or-permission.types";
 import { seconds, Throttle } from "@nestjs/throttler";
 import { UpdateUserDto } from "./dto/update-user.dto";
 import { ChangeEmailDto } from "./dto/change-email.dto";
 import { ConfirmEmailChangeDto } from "./dto/confirm-email-change.dto";
 import { ConfirmEmailChangeLinkQueryDto } from "./dto/confirm-email-change-link.query.dto";
-import { SelfOnly, SelfOnlyGuard } from "@/core/self-or-permission/self-only.guard";
+import { SelfOnly, SelfOnlyGuard } from "@/core/auth/self-only.guard";
 import { DeleteRequestDto } from "./dto/delete-request.dto";
 import { ConfirmDeleteDto } from "./dto/confirm-delete.dto";
 import { ConfirmDeleteLinkQueryDto } from "./dto/confirm-delete-link.query.dto";
-import { PermissionsGuard } from "@/modules/rbac/guards/permissions.guard";
-import { RequirePermission } from "@/modules/rbac/decorators/require-permission.decorator";
 import type { RequestUser } from "@/core/auth/auth.types";
 import { ListUsersQueryDto, ListUsersResponseDto } from "./dto/list-users.dto";
 import { throttleFromConfig } from "@/core/throttler/throttle-from-config";

@@ -75,8 +75,10 @@ never `typeorm migration:generate` directly.
 - **Layout**:
   ```
   src/
+  ├── common/          # dependency-free helpers shared by any layer (e.g. validation decorators)
   ├── core/            # cross-cutting infra, not business logic
   │   ├── app/         # AppModule — wires everything together
+  │   ├── auth/        # JwtAuthGuard/JwtStrategy, @Public(), SelfOnlyGuard, token service
   │   ├── config/      # ConfigModule + Joi-validated, typed ConfigService
   │   ├── database/    # TypeORM + PostgreSQL connection, typeorm-transactional wiring
   │   ├── error-handling/  # AllExceptionsFilter + diagnostic TestErrorsController
@@ -125,8 +127,12 @@ never `typeorm migration:generate` directly.
   global `APP_GUARD` (opt out with `@Public()`).
 - **RBAC** (`src/modules/rbac`): roles/permissions/grants stored in the DB,
   managed via `/admin/rbac/*`; routes are protected with `PermissionsGuard` +
-  `@RequirePermission(resource, action)`, or `SelfOrPermissionGuard` /
-  `SelfOnlyGuard` for `/users/:id`-style routes.
+  `@RequirePermission(resource, action)`, or `SelfOrPermissionGuard` +
+  `@SelfOrPermission(...)` for `/users/:id`-style routes. These live in
+  `modules/rbac/access/`; other modules import them from the `@/modules/rbac`
+  barrel (`index.ts`), not deep paths. `SelfOnlyGuard` has no RBAC dependency
+  and lives in `core/auth/`. Dependencies point one way — feature modules →
+  `rbac` → `core` — so don't put RBAC-dependent code in `core/`.
 - **Swagger**: served at `SWAGGER_PATH` (`APP_NAME`/`API_VERSION` from
   config), bearer auth scheme already declared even though no route enforces
   it yet.

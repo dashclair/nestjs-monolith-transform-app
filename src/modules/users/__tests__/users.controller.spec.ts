@@ -1,8 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 
-import { SelfOrPermissionGuard } from '@/core/self-or-permission/self-or-permission.guard';
-import { PermissionsGuard } from '@/modules/rbac/guards/permissions.guard';
-import { SelfOrPermissionAccess } from '@/core/self-or-permission/self-or-permission.types';
+import {
+  PermissionsGuard,
+  SelfOrPermissionAccess,
+  SelfOrPermissionGuard,
+} from '@/modules/rbac';
 import { EmailVerificationMethod } from '@/core/email-verification/email-verification-method.enum';
 
 import { UserProfileDto } from '../dto/user-profile.dto';

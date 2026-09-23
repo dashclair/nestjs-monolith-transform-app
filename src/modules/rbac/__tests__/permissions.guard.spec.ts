@@ -8,7 +8,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 
 import { RequestUser } from '@/core/auth/auth.types';
 
-import { PermissionsGuard } from '../guards/permissions.guard';
+import { PermissionsGuard } from '../access/permissions.guard';
 import { RbacConfigService } from '../services/rbac-config.service';
 
 describe('PermissionsGuard', () => {

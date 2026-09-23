@@ -1,5 +1,5 @@
 import { IsEmail, IsString } from 'class-validator';
-import { NormalizeEmail } from './normalize-email.decorator';
+import { NormalizeEmail } from '@/common/validation/normalize-email.decorator';
 
 export class LoginDto {
   @IsEmail()
