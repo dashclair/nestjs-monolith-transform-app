@@ -117,6 +117,39 @@ describe('AuthService', () => {
       expect(usersServiceMock.create).not.toHaveBeenCalled();
     });
 
+    // Regression: two concurrent registrations both pass the findByEmail
+    // check, and the second INSERT hits the unique index — that used to
+    // surface as a 500 instead of 409.
+    it('should throw ConflictException when a concurrent registration wins the race to the unique index', async () => {
+      usersServiceMock.findByEmail.mockResolvedValue(null);
+      configServiceMock.get.mockReturnValue('false');
+      passwordServiceMock.hash.mockResolvedValue('hashed-password');
+      usersServiceMock.create.mockRejectedValue(
+        Object.assign(new Error('duplicate key value'), {
+          driverError: { code: '23505' },
+        }),
+      );
+
+      await expect(
+        service.register('user@example.com', 'password123'),
+      ).rejects.toThrow(ConflictException);
+      expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
+    });
+
+    it('should rethrow other database errors from create as-is', async () => {
+      usersServiceMock.findByEmail.mockResolvedValue(null);
+      configServiceMock.get.mockReturnValue('false');
+      passwordServiceMock.hash.mockResolvedValue('hashed-password');
+      const dbError = Object.assign(new Error('connection lost'), {
+        driverError: { code: '08006' },
+      });
+      usersServiceMock.create.mockRejectedValue(dbError);
+
+      await expect(
+        service.register('user@example.com', 'password123'),
+      ).rejects.toBe(dbError);
+    });
+
     it('should create a verified user and not send an email when confirmation is disabled', async () => {
       usersServiceMock.findByEmail.mockResolvedValue(null);
       configServiceMock.get.mockImplementation((key: string) =>

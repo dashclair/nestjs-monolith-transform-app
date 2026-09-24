@@ -26,6 +26,7 @@ import { EmailVerificationMethod } from '../../../core/email-verification/email-
 import { FastifyReply } from 'fastify';
 import { RefreshSessionService } from './refresh-session.service';
 import type { SessionMeta } from './refresh-session.service';
+import { isUniqueViolation } from '@/common/database/is-unique-violation';
 
 @Injectable()
 export class AuthService {
@@ -85,11 +86,20 @@ export class AuthService {
         this.configService.get('AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION'),
       ) === 'true';
     const passwordHash = await this.passwordService.hash(password);
-    const user = await this.usersService.create({
-      email,
-      passwordHash,
-      isEmailVerified: !requireConfirmation,
-    });
+    let user: User;
+    try {
+      user = await this.usersService.create({
+        email,
+        passwordHash,
+        isEmailVerified: !requireConfirmation,
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        this.logger.warn({ event: 'auth.register.conflict', email });
+        throw new ConflictException('Email already registered');
+      }
+      throw error;
+    }
 
     if (!requireConfirmation) {
       this.logger.log({
