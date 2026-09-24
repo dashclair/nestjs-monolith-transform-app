@@ -77,17 +77,52 @@ describe('JwtStrategy.validate', () => {
   it('returns the RequestUser shape for a valid, current access token', async () => {
     usersServiceMock.findById.mockResolvedValue({
       id: 'user-1',
+      email: 'user@example.com',
       tokenVersion: 0,
+      roles: [{ name: 'user' }, { name: 'admin' }],
     } as User);
 
     const result = await strategy.validate(
       buildPayload({ roles: ['user', 'admin'] }),
     );
 
+    expect(usersServiceMock.findById).toHaveBeenCalledWith('user-1', ['roles']);
     expect(result).toEqual({
       userId: 'user-1',
       email: 'user@example.com',
       roles: ['user', 'admin'],
     });
+  });
+
+  // Regression: roles used to be read from the JWT payload, so a revoked
+  // role kept granting access until the access token expired (up to 15 min).
+  it('uses the current roles from the DB, not the (possibly stale) roles in the token', async () => {
+    usersServiceMock.findById.mockResolvedValue({
+      id: 'user-1',
+      email: 'user@example.com',
+      tokenVersion: 0,
+      roles: [{ name: 'user' }],
+    } as User);
+
+    const result = await strategy.validate(
+      buildPayload({ roles: ['user', 'admin'] }),
+    );
+
+    expect(result.roles).toEqual(['user']);
+  });
+
+  it('uses the current email from the DB after an email change', async () => {
+    usersServiceMock.findById.mockResolvedValue({
+      id: 'user-1',
+      email: 'new@example.com',
+      tokenVersion: 0,
+      roles: [{ name: 'user' }],
+    } as User);
+
+    const result = await strategy.validate(
+      buildPayload({ email: 'old@example.com' }),
+    );
+
+    expect(result.email).toBe('new@example.com');
   });
 });

@@ -31,12 +31,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid token type');
     }
 
-    const user = await this.usersService.findById(payload.sub);
-    if (!user) {
-      throw new UnauthorizedException('User not found');
-    }
-
-    if (user?.deletedAt) {
+    const user = await this.usersService.findById(payload.sub, ['roles']);
+    if (!user || user.deletedAt) {
       throw new UnauthorizedException('User not found');
     }
 
@@ -45,9 +41,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     return {
-      userId: payload.sub,
-      email: payload.email,
-      roles: payload.roles,
+      userId: user.id,
+      email: user.email,
+      roles: user.roles.map((role) => role.name),
     };
   }
 }
