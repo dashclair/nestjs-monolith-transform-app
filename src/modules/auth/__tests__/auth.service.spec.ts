@@ -20,6 +20,7 @@ import { EmailVerificationService } from '@/core/email-verification/email-verifi
 
 import { AuthService } from '../services/auth.service';
 import { PasswordService } from '../services/password.service';
+import { RefreshSessionService } from '../services/refresh-session.service';
 
 // `AuthService`'s methods are decorated with `@Transactional()`, which needs
 // `initializeTransactionalContext()` to have run first (only happens in
@@ -61,6 +62,11 @@ describe('AuthService', () => {
     verifyRefreshToken: vi.fn<TokenService['verifyRefreshToken']>(),
     verifyAccessToken: vi.fn<TokenService['verifyAccessToken']>(),
   };
+  const refreshSessionServiceMock = {
+    create: vi.fn<RefreshSessionService['create']>(),
+    rotate: vi.fn<RefreshSessionService['rotate']>(),
+    revoke: vi.fn<RefreshSessionService['revoke']>(),
+  };
 
   const buildUser = (overrides: Partial<User> = {}): User =>
     ({
@@ -90,6 +96,10 @@ describe('AuthService', () => {
         },
         { provide: ConfigService, useValue: configServiceMock },
         { provide: TokenService, useValue: tokenServiceMock },
+        {
+          provide: RefreshSessionService,
+          useValue: refreshSessionServiceMock,
+        },
       ],
     }).compile();
 
@@ -414,6 +424,27 @@ describe('AuthService', () => {
       expect(result).toEqual(tokens);
     });
 
+    it('stores a refresh session under the same jti the refresh token was signed with', async () => {
+      const user = buildUser({ isEmailVerified: true });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      passwordServiceMock.verify.mockResolvedValue(true);
+      tokenServiceMock.issueTokens.mockResolvedValue({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      });
+      const meta = { userAgent: 'test-agent', ip: '127.0.0.1' };
+
+      await service.login(loginDto, meta);
+
+      const jti = tokenServiceMock.issueTokens.mock.calls[0][1];
+      expect(refreshSessionServiceMock.create).toHaveBeenCalledWith(
+        user.id,
+        jti,
+        'refresh-token',
+        meta,
+      );
+    });
+
     it('should require confirmation and not issue tokens when login confirmation is enabled', async () => {
       configServiceMock.get.mockImplementation((key: string) => {
         const values: Record<string, string> = {
@@ -545,9 +576,10 @@ describe('AuthService', () => {
         UnauthorizedException,
       );
       expect(tokenServiceMock.issueTokens).not.toHaveBeenCalled();
+      expect(refreshSessionServiceMock.rotate).not.toHaveBeenCalled();
     });
 
-    it('should issue a new token pair when the refresh token is valid', async () => {
+    it('should rotate the session and return the new token pair when the refresh token is valid', async () => {
       const user = buildUser({ tokenVersion: 1 });
       tokenServiceMock.verifyRefreshToken.mockResolvedValue({
         sub: user.id,
@@ -560,10 +592,44 @@ describe('AuthService', () => {
       usersServiceMock.findById.mockResolvedValue(user);
       const tokens = { accessToken: 'new-access', refreshToken: 'new-refresh' };
       tokenServiceMock.issueTokens.mockResolvedValue(tokens);
+      const meta = { userAgent: 'test-agent', ip: '127.0.0.1' };
 
-      const result = await service.refresh('valid-token');
+      const result = await service.refresh('valid-token', meta);
 
+      const newJti = tokenServiceMock.issueTokens.mock.calls[0][1];
+      expect(newJti).not.toBe('jti-1');
+      expect(refreshSessionServiceMock.rotate).toHaveBeenCalledWith(
+        'jti-1',
+        'valid-token',
+        newJti,
+        'new-refresh',
+        meta,
+      );
       expect(result).toEqual(tokens);
+    });
+
+    it('should propagate the 401 when the session cannot be rotated (revoked or reused)', async () => {
+      const user = buildUser({ tokenVersion: 1 });
+      tokenServiceMock.verifyRefreshToken.mockResolvedValue({
+        sub: user.id,
+        email: user.email,
+        roles: ['user'],
+        tokenVersion: 1,
+        type: 'refresh',
+        jti: 'jti-1',
+      });
+      usersServiceMock.findById.mockResolvedValue(user);
+      tokenServiceMock.issueTokens.mockResolvedValue({
+        accessToken: 'new-access',
+        refreshToken: 'new-refresh',
+      });
+      refreshSessionServiceMock.rotate.mockRejectedValue(
+        new UnauthorizedException('Invalid refresh token'),
+      );
+
+      await expect(service.refresh('reused-token')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 
@@ -571,7 +637,7 @@ describe('AuthService', () => {
     const buildResponse = (): FastifyReply =>
       ({ clearCookie: vi.fn() }) as unknown as FastifyReply;
 
-    it('clears both auth cookies regardless of the access token', async () => {
+    it('clears both auth cookies regardless of the refresh token', async () => {
       const clearCookie = vi.fn();
       const response = { clearCookie } as unknown as FastifyReply;
 
@@ -581,43 +647,45 @@ describe('AuthService', () => {
         path: '/',
       });
       expect(clearCookie).toHaveBeenCalledWith('refresh_token', {
-        path: '/auth/refresh',
+        path: '/auth',
       });
     });
 
-    it('does not attempt to verify a token when none was provided', async () => {
+    it('does not verify or revoke anything when no refresh token was provided', async () => {
       await service.logout(buildResponse());
 
-      expect(tokenServiceMock.verifyAccessToken).not.toHaveBeenCalled();
+      expect(tokenServiceMock.verifyRefreshToken).not.toHaveBeenCalled();
+      expect(refreshSessionServiceMock.revoke).not.toHaveBeenCalled();
     });
 
-    it('logs the userId when a valid access token is provided', async () => {
-      tokenServiceMock.verifyAccessToken.mockResolvedValue({
+    it('revokes the session and logs the userId when a valid refresh token is provided', async () => {
+      tokenServiceMock.verifyRefreshToken.mockResolvedValue({
         sub: 'user-1',
         email: 'user@example.com',
         roles: ['user'],
         tokenVersion: 0,
-        type: 'access',
+        type: 'refresh',
         jti: 'jti-1',
       });
       const logSpy = vi.spyOn(Logger.prototype, 'log');
 
       await service.logout(buildResponse(), 'valid-token');
 
-      expect(tokenServiceMock.verifyAccessToken).toHaveBeenCalledWith(
-        'valid-token',
-      );
+      expect(refreshSessionServiceMock.revoke).toHaveBeenCalledWith('jti-1');
       expect(logSpy).toHaveBeenCalledWith(
         expect.objectContaining({ event: 'auth.logout', userId: 'user-1' }),
       );
     });
 
-    it('logs anonymously when the access token is missing or invalid', async () => {
-      tokenServiceMock.verifyAccessToken.mockResolvedValue(null);
+    it('still succeeds and logs anonymously when the refresh token is invalid', async () => {
+      tokenServiceMock.verifyRefreshToken.mockRejectedValue(
+        new UnauthorizedException('Invalid refresh token'),
+      );
       const logSpy = vi.spyOn(Logger.prototype, 'log');
 
       await service.logout(buildResponse(), 'expired-token');
 
+      expect(refreshSessionServiceMock.revoke).not.toHaveBeenCalled();
       expect(logSpy).toHaveBeenCalledWith({ event: 'auth.logout' });
     });
   });

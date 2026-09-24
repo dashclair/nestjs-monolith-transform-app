@@ -114,7 +114,7 @@ describe('Auth cookie transport (e2e)', () => {
       expect(accessCookie).toMatch(/HttpOnly/i);
       expect(accessCookie).toMatch(/Path=\//);
       expect(refreshCookie).toMatch(/HttpOnly/i);
-      expect(refreshCookie).toMatch(/Path=\/auth\/refresh/);
+      expect(refreshCookie).toMatch(/Path=\/auth(;|$)/);
 
       expect(res.body).toEqual({ success: true });
       expect(res.body).not.toHaveProperty('accessToken');
@@ -170,6 +170,30 @@ describe('Auth cookie transport (e2e)', () => {
       expect(newAccess).not.toBe(oldAccess);
       expect(newRefresh).not.toBe(oldRefresh);
     });
+
+    it('treats a reused refresh token as theft and revokes the whole chain', async () => {
+      const oldRefresh = extractCookieValue(
+        extractSetCookie(await login(USER_EMAIL), 'refresh_token'),
+      );
+      const refreshRes = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', [`refresh_token=${oldRefresh}`])
+        .expect(200);
+      const newRefresh = extractCookieValue(
+        extractSetCookie(refreshRes, 'refresh_token'),
+      );
+
+      // Replaying the already-rotated token is rejected...
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', [`refresh_token=${oldRefresh}`])
+        .expect(401);
+      // ...and it also kills the legitimate successor.
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', [`refresh_token=${newRefresh}`])
+        .expect(401);
+    });
   });
 
   describe('POST /auth/logout', () => {
@@ -184,6 +208,22 @@ describe('Auth cookie transport (e2e)', () => {
       expect(accessCookie).toMatch(/Expires=Thu, 01 Jan 1970/);
       expect(refreshCookie).toMatch(/Expires=Thu, 01 Jan 1970/);
       expect(res.body).toEqual({ loggedOut: true });
+    });
+
+    it('revokes the refresh session, so the token cannot be used afterwards', async () => {
+      const refresh = extractCookieValue(
+        extractSetCookie(await login(USER_EMAIL), 'refresh_token'),
+      );
+
+      await request(app.getHttpServer())
+        .post('/auth/logout')
+        .set('Cookie', [`refresh_token=${refresh}`])
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', [`refresh_token=${refresh}`])
+        .expect(401);
     });
   });
 });

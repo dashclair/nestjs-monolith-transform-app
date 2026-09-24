@@ -38,6 +38,7 @@ import { DeleteRequestDto } from './dto/delete-request.dto';
 import { ConfirmDeleteDto } from './dto/confirm-delete.dto';
 import { ConfirmDeleteLinkQueryDto } from './dto/confirm-delete-link.query.dto';
 import type { RequestUser } from '@/core/auth/auth.types';
+import { clearAuthCookies } from '@/core/auth/cookie.util';
 import { ListUsersQueryDto, ListUsersResponseDto } from './dto/list-users.dto';
 import { throttleFromConfig } from '@/core/throttler/throttle-from-config';
 
@@ -164,7 +165,6 @@ export class UsersController {
   }
 
   private clearSessionCookies(response: FastifyReply): void {
-    response.clearCookie('access_token', { path: '/' });
-    response.clearCookie('refresh_token', { path: '/auth/refresh' });
+    clearAuthCookies(response);
   }
 }

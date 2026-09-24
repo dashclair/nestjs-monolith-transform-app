@@ -22,6 +22,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResendConfirmationDto } from './dto/resend-confirmation.dto';
 import { AuthService } from './services/auth.service';
+import type { SessionMeta } from './services/refresh-session.service';
 
 import { setAuthCookies } from '@/core/auth/cookie.util';
 import { TokenPair } from '@/core/auth/services/token.service';
@@ -49,14 +50,22 @@ export class AuthController {
     });
   }
 
+  private sessionMeta(request: FastifyRequest): SessionMeta {
+    return {
+      userAgent: request.headers['user-agent'] ?? null,
+      ip: request.ip,
+    };
+  }
+
   @Throttle({ default: { limit: 5, ttl: seconds(60) } })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() dto: LoginDto,
+    @Req() request: FastifyRequest,
     @Res({ passthrough: true }) response: FastifyReply,
   ) {
-    const result = await this.authService.login(dto);
+    const result = await this.authService.login(dto, this.sessionMeta(request));
 
     if ('requiresConfirmation' in result) {
       return result;
@@ -71,9 +80,14 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async confirmLoginOtp(
     @Body() dto: ConfirmOtpDto,
+    @Req() request: FastifyRequest,
     @Res({ passthrough: true }) response: FastifyReply,
   ) {
-    const tokens = await this.authService.confirmLoginOtp(dto.email, dto.code);
+    const tokens = await this.authService.confirmLoginOtp(
+      dto.email,
+      dto.code,
+      this.sessionMeta(request),
+    );
 
     this.applyAuthCookies(response, tokens);
     return { success: true };
@@ -83,11 +97,13 @@ export class AuthController {
   @Get('login/confirm-link')
   async confirmLoginLink(
     @Query() dto: ConfirmMagicLinkQueryDto,
+    @Req() request: FastifyRequest,
     @Res({ passthrough: true }) response: FastifyReply,
   ) {
     const tokens = await this.authService.confirmLoginMagicLink(
       dto.email,
       dto.token,
+      this.sessionMeta(request),
     );
     this.applyAuthCookies(response, tokens);
 
@@ -113,7 +129,10 @@ export class AuthController {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const tokens = await this.authService.refresh(refreshToken);
+    const tokens = await this.authService.refresh(
+      refreshToken,
+      this.sessionMeta(request),
+    );
     this.applyAuthCookies(response, tokens);
     return { success: true };
   }
@@ -159,7 +178,7 @@ export class AuthController {
     @Req() request: FastifyRequest,
     @Res({ passthrough: true }) response: FastifyReply,
   ) {
-    await this.authService.logout(response, request.cookies?.access_token);
+    await this.authService.logout(response, request.cookies?.refresh_token);
     return { loggedOut: true };
   }
 }

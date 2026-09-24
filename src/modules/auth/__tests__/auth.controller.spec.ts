@@ -43,8 +43,14 @@ describe('AuthController', () => {
   }
 
   function buildRequest(cookies: Record<string, string> = {}): FastifyRequest {
-    return { cookies } as unknown as FastifyRequest;
+    return {
+      cookies,
+      headers: { 'user-agent': 'test-agent' },
+      ip: '127.0.0.1',
+    } as unknown as FastifyRequest;
   }
+
+  const meta = { userAgent: 'test-agent', ip: '127.0.0.1' };
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -74,9 +80,9 @@ describe('AuthController', () => {
       const response = buildResponse();
 
       const dto = { email: 'user@example.com', password: 'password123' };
-      const result = await controller.login(dto, response);
+      const result = await controller.login(dto, buildRequest(), response);
 
-      expect(authServiceMock.login).toHaveBeenCalledWith(dto);
+      expect(authServiceMock.login).toHaveBeenCalledWith(dto, meta);
       expect(response.setCookie).toHaveBeenCalledWith(
         'access_token',
         'access-token',
@@ -85,7 +91,7 @@ describe('AuthController', () => {
       expect(response.setCookie).toHaveBeenCalledWith(
         'refresh_token',
         'refresh-token',
-        expect.objectContaining({ httpOnly: true, path: '/auth/refresh' }),
+        expect.objectContaining({ httpOnly: true, path: '/auth' }),
       );
       expect(result).toEqual({ success: true });
     });
@@ -100,7 +106,7 @@ describe('AuthController', () => {
       const response = buildResponse();
 
       const dto = { email: 'user@example.com', password: 'password123' };
-      const result = await controller.login(dto, response);
+      const result = await controller.login(dto, buildRequest(), response);
 
       expect(response.setCookie).not.toHaveBeenCalled();
       expect(result).toBe(serviceResult);
@@ -118,12 +124,14 @@ describe('AuthController', () => {
 
       const result = await controller.confirmLoginOtp(
         { email: 'user@example.com', code: '123456' },
+        buildRequest(),
         response,
       );
 
       expect(authServiceMock.confirmLoginOtp).toHaveBeenCalledWith(
         'user@example.com',
         '123456',
+        meta,
       );
       expect(response.setCookie).toHaveBeenCalledTimes(2);
       expect(result).toEqual({ success: true });
@@ -141,12 +149,14 @@ describe('AuthController', () => {
 
       const result = await controller.confirmLoginLink(
         { email: 'user@example.com', token: 'abc123' },
+        buildRequest(),
         response,
       );
 
       expect(authServiceMock.confirmLoginMagicLink).toHaveBeenCalledWith(
         'user@example.com',
         'abc123',
+        meta,
       );
       expect(response.setCookie).toHaveBeenCalledTimes(2);
       expect(result).toEqual({ success: true });
@@ -181,7 +191,10 @@ describe('AuthController', () => {
 
       const result = await controller.refresh(request, response);
 
-      expect(authServiceMock.refresh).toHaveBeenCalledWith('old-refresh-token');
+      expect(authServiceMock.refresh).toHaveBeenCalledWith(
+        'old-refresh-token',
+        meta,
+      );
       expect(response.setCookie).toHaveBeenCalledWith(
         'access_token',
         'new-access-token',
@@ -190,7 +203,7 @@ describe('AuthController', () => {
       expect(response.setCookie).toHaveBeenCalledWith(
         'refresh_token',
         'new-refresh-token',
-        expect.objectContaining({ path: '/auth/refresh' }),
+        expect.objectContaining({ path: '/auth' }),
       );
       expect(result).toEqual({ success: true });
     });
@@ -208,20 +221,20 @@ describe('AuthController', () => {
   });
 
   describe('logout', () => {
-    it('delegates to AuthService.logout with the access token cookie', async () => {
+    it('delegates to AuthService.logout with the refresh token cookie', async () => {
       const response = buildResponse();
-      const request = buildRequest({ access_token: 'access-token-value' });
+      const request = buildRequest({ refresh_token: 'refresh-token-value' });
 
       const result = await controller.logout(request, response);
 
       expect(authServiceMock.logout).toHaveBeenCalledWith(
         response,
-        'access-token-value',
+        'refresh-token-value',
       );
       expect(result).toEqual({ loggedOut: true });
     });
 
-    it('still logs out when there is no access token cookie', async () => {
+    it('still logs out when there is no refresh token cookie', async () => {
       const response = buildResponse();
       const request = buildRequest();
 

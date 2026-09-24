@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { UnauthorizedException } from '@nestjs/common';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -54,7 +56,10 @@ describe('TokenService', () => {
     it('signs an access token and a refresh token with distinct type claims', async () => {
       const user = buildUser();
 
-      const { accessToken, refreshToken } = await service.issueTokens(user);
+      const { accessToken, refreshToken } = await service.issueTokens(
+        user,
+        randomUUID(),
+      );
 
       expect(jwtService.decode(accessToken)).toMatchObject({
         sub: user.id,
@@ -69,9 +74,22 @@ describe('TokenService', () => {
       });
     });
 
+    it('uses the given jti for the refresh token, so it matches the stored session id', async () => {
+      const { refreshToken } = await service.issueTokens(
+        buildUser(),
+        'session-id',
+      );
+
+      expect(jwtService.decode<{ jti: string }>(refreshToken).jti).toBe(
+        'session-id',
+      );
+    });
+
     it('gives the access and refresh token distinct jti claims', async () => {
-      const { accessToken, refreshToken } =
-        await service.issueTokens(buildUser());
+      const { accessToken, refreshToken } = await service.issueTokens(
+        buildUser(),
+        randomUUID(),
+      );
 
       const accessJti = jwtService.decode<{ jti: string }>(accessToken).jti;
       const refreshJti = jwtService.decode<{ jti: string }>(refreshToken).jti;
@@ -85,8 +103,8 @@ describe('TokenService', () => {
       const user = buildUser();
 
       const [first, second] = await Promise.all([
-        service.issueTokens(user),
-        service.issueTokens(user),
+        service.issueTokens(user, randomUUID()),
+        service.issueTokens(user, randomUUID()),
       ]);
 
       expect(first.accessToken).not.toBe(second.accessToken);
@@ -97,7 +115,7 @@ describe('TokenService', () => {
   describe('verifyRefreshToken', () => {
     it('returns the payload for a valid refresh token', async () => {
       const user = buildUser({ tokenVersion: 3 });
-      const { refreshToken } = await service.issueTokens(user);
+      const { refreshToken } = await service.issueTokens(user, randomUUID());
 
       const payload = await service.verifyRefreshToken(refreshToken);
 
@@ -109,7 +127,10 @@ describe('TokenService', () => {
     });
 
     it('rejects an access token presented as a refresh token', async () => {
-      const { accessToken } = await service.issueTokens(buildUser());
+      const { accessToken } = await service.issueTokens(
+        buildUser(),
+        randomUUID(),
+      );
 
       await expect(service.verifyRefreshToken(accessToken)).rejects.toThrow(
         UnauthorizedException,
@@ -132,7 +153,10 @@ describe('TokenService', () => {
     });
 
     it('rejects an expired refresh token', async () => {
-      const { refreshToken } = await service.issueTokens(buildUser());
+      const { refreshToken } = await service.issueTokens(
+        buildUser(),
+        randomUUID(),
+      );
 
       vi.useFakeTimers();
       vi.setSystemTime(Date.now() + 8 * 24 * 60 * 60 * 1000); // past the 7d JWT_REFRESH_TTL

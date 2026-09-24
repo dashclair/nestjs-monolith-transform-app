@@ -19,7 +19,10 @@ export class TokenService {
     private readonly configService: ConfigService,
   ) {}
 
-  async issueTokens(user: TokenSubject): Promise<TokenPair> {
+  async issueTokens(
+    user: TokenSubject,
+    refreshJti: string,
+  ): Promise<TokenPair> {
     const basePayload: Omit<JwtPayload, 'type' | 'jti'> = {
       sub: user.id,
       email: user.email,
@@ -35,7 +38,7 @@ export class TokenService {
         },
       ),
       this.jwtService.signAsync(
-        { ...basePayload, type: 'refresh', jti: randomUUID() },
+        { ...basePayload, type: 'refresh', jti: refreshJti },
         {
           expiresIn: this.configService.get('JWT_REFRESH_TTL') as StringValue,
         },

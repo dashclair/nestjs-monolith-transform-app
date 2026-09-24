@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import fastifyCookie from '@fastify/cookie';
 import { ValidationPipe } from '@nestjs/common';
 import {
@@ -75,7 +77,7 @@ describe('Users profile & email change (e2e)', () => {
 
   const tokenFor = async (email: string): Promise<string> => {
     const user = await findUser(email);
-    const { accessToken } = await tokenService.issueTokens(user);
+    const { accessToken } = await tokenService.issueTokens(user, randomUUID());
     return accessToken;
   };
 
