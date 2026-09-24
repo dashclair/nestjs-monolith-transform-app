@@ -37,6 +37,7 @@ describe('UsersService', () => {
   let service: UsersService;
 
   const usersRepoMock = {
+    create: vi.fn<Repository<User>['create']>(),
     findOne: vi.fn<Repository<User>['findOne']>(),
     findOneBy: vi.fn<Repository<User>['findOneBy']>(),
     merge: vi.fn<Repository<User>['merge']>(),
@@ -106,6 +107,43 @@ describe('UsersService', () => {
     }).compile();
 
     service = module.get(UsersService);
+  });
+
+  describe('create', () => {
+    it.each(['deleted-victim-id@deleted.local', 'user@DELETED.LOCAL'])(
+      'rejects registration using %s before any database write',
+      async (email) => {
+        await expect(
+          service.create({
+            email,
+            passwordHash: 'hash',
+            isEmailVerified: false,
+          }),
+        ).rejects.toThrow(new BadRequestException('Email domain is reserved'));
+
+        expect(rolesRepoMock.findOneBy).not.toHaveBeenCalled();
+        expect(usersRepoMock.create).not.toHaveBeenCalled();
+        expect(usersRepoMock.save).not.toHaveBeenCalled();
+        expect(
+          emailVerificationServiceMock.issueAndSend,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
+    it('creates a user with an ordinary email', async () => {
+      const user = buildUser();
+      usersRepoMock.create.mockReturnValueOnce(user);
+
+      await expect(
+        service.create({
+          email: user.email,
+          passwordHash: user.passwordHash,
+          isEmailVerified: true,
+          roles: [],
+        }),
+      ).resolves.toBe(user);
+      expect(usersRepoMock.save).toHaveBeenCalledWith(user);
+    });
   });
 
   describe('getUserProfile', () => {
@@ -333,6 +371,25 @@ describe('UsersService', () => {
       expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
     });
 
+    it.each(['deleted-victim-id@deleted.local', 'user@DELETED.LOCAL'])(
+      'rejects an admin assigning %s without changing the user',
+      async (email) => {
+        const user = buildUser();
+        usersRepoMock.findOneBy.mockResolvedValue(user);
+
+        await expect(
+          service.updateUser('user-1', { email }, adminUpdateAccess('admin-1')),
+        ).rejects.toThrow(new BadRequestException('Email domain is reserved'));
+
+        expect(user.email).toBe('user@example.com');
+        expect(usersRepoMock.merge).not.toHaveBeenCalled();
+        expect(usersRepoMock.save).not.toHaveBeenCalled();
+        expect(
+          emailVerificationServiceMock.issueAndSend,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
     it('rejects an admin email change with 409 when the email is already taken by someone else', async () => {
       const user = buildUser();
       usersRepoMock.findOneBy.mockResolvedValue(user);
@@ -399,6 +456,24 @@ describe('UsersService', () => {
   });
 
   describe('initiateEmailChange', () => {
+    it.each(['deleted-victim-id@deleted.local', 'user@DELETED.LOCAL'])(
+      'rejects %s without saving a pending address or sending a code',
+      async (email) => {
+        const user = buildUser();
+        usersRepoMock.findOne.mockResolvedValue(user);
+
+        await expect(
+          service.initiateEmailChange(user.id, email),
+        ).rejects.toThrow(new BadRequestException('Email domain is reserved'));
+
+        expect(user.pendingEmail).toBeNull();
+        expect(usersRepoMock.save).not.toHaveBeenCalled();
+        expect(
+          emailVerificationServiceMock.issueAndSend,
+        ).not.toHaveBeenCalled();
+      },
+    );
+
     it('throws NotFoundException when the user does not exist', async () => {
       usersRepoMock.findOne.mockResolvedValue(null);
 
@@ -460,6 +535,23 @@ describe('UsersService', () => {
   });
 
   describe('confirmEmailChange', () => {
+    it.each(['deleted-victim-id@deleted.local', 'user@DELETED.LOCAL'])(
+      'rejects a legacy pending address %s without consuming the code',
+      async (pendingEmail) => {
+        const user = buildUser({ pendingEmail });
+        usersRepoMock.findOne.mockResolvedValue(user);
+
+        await expect(
+          service.confirmEmailChange(user.id, '123456'),
+        ).rejects.toThrow(new BadRequestException('Email domain is reserved'));
+
+        expect(user.email).toBe('user@example.com');
+        expect(user.pendingEmail).toBe(pendingEmail);
+        expect(emailVerificationServiceMock.confirm).not.toHaveBeenCalled();
+        expect(usersRepoMock.save).not.toHaveBeenCalled();
+      },
+    );
+
     it('throws NotFoundException when the user does not exist', async () => {
       usersRepoMock.findOne.mockResolvedValue(null);
 

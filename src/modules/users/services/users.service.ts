@@ -12,6 +12,7 @@ import { Repository } from 'typeorm';
 
 import { isUniqueViolation } from '@/common/database/is-unique-violation';
 import { isSameId } from '@/common/utils/is-same-id';
+import { isReservedEmail } from '@/common/validation/is-reserved-email';
 import { DEFAULT_ROLE_NAME } from '@/modules/rbac/rbac.constants';
 import { Role } from '@/modules/rbac/entities/role.entity';
 
@@ -74,6 +75,10 @@ export class UsersService {
     isEmailVerified: boolean;
     roles?: Role[];
   }): Promise<User> {
+    if (isReservedEmail(data.email)) {
+      throw new BadRequestException('Email domain is reserved');
+    }
+
     const roles = data.roles ?? (await this.findDefaultRole());
     return this.repo.save(this.repo.create({ ...data, roles }));
   }
@@ -191,6 +196,10 @@ export class UsersService {
     }
 
     if (dto.email !== undefined) {
+      if (isReservedEmail(dto.email)) {
+        throw new BadRequestException('Email domain is reserved');
+      }
+
       const existing = await this.findByEmail(dto.email);
       if (existing && !isSameId(existing.id, userId)) {
         throw new ConflictException('Email already registered');
@@ -223,6 +232,10 @@ export class UsersService {
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (isReservedEmail(newEmail)) {
+      throw new BadRequestException('Email domain is reserved');
     }
 
     if (user.email === newEmail) {
@@ -264,6 +277,11 @@ export class UsersService {
 
     if (!user.pendingEmail) {
       throw new NotFoundException('No pending email change');
+    }
+
+    // Also reject pending addresses stored before the domain was reserved.
+    if (isReservedEmail(user.pendingEmail)) {
+      throw new BadRequestException('Email domain is reserved');
     }
 
     // The address was free at initiateEmailChange(), but someone may have
