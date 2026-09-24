@@ -204,6 +204,10 @@ export class UsersService {
       if (existing && !isSameId(existing.id, userId)) {
         throw new ConflictException('Email already registered');
       }
+
+      if (dto.email !== user.email) {
+        user.pendingEmail = null;
+      }
     }
 
     this.repo.merge(user, dto);

@@ -330,8 +330,8 @@ describe('UsersService', () => {
       expect(user.photo).toBeNull();
     });
 
-    it('lets self update photo without touching email', async () => {
-      const user = buildUser();
+    it('lets self update photo without touching email or its pending change', async () => {
+      const user = buildUser({ pendingEmail: 'pending@example.com' });
       usersRepoMock.findOneBy.mockResolvedValue(user);
 
       const result = await service.updateUser(
@@ -342,6 +342,7 @@ describe('UsersService', () => {
 
       expect(result.photo).toBe('https://example.com/new.jpg');
       expect(result.email).toBe('user@example.com');
+      expect(user.pendingEmail).toBe('pending@example.com');
     });
 
     it('throws NotFoundException when the target user does not exist', async () => {
@@ -371,6 +372,41 @@ describe('UsersService', () => {
       expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
     });
 
+    it('rejects the old confirmation after an admin changes email and clears the pending address', async () => {
+      const user = buildUser({ pendingEmail: 'pending@example.com' });
+      usersRepoMock.findOneBy.mockResolvedValue(user);
+      usersRepoMock.findOne.mockResolvedValueOnce(null);
+
+      const result = await service.updateUser(
+        user.id,
+        { email: 'admin-assigned@example.com' },
+        adminUpdateAccess('admin-1'),
+      );
+
+      expect(result.email).toBe('admin-assigned@example.com');
+      expect(usersRepoMock.save).toHaveBeenCalledTimes(1);
+      expect(usersRepoMock.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          email: 'admin-assigned@example.com',
+          pendingEmail: null,
+        }),
+      );
+
+      // Reload the saved state for the subsequent confirmation request.
+      const savedUser = { ...usersRepoMock.save.mock.calls[0][0] } as User;
+      usersRepoMock.findOne.mockResolvedValueOnce(savedUser);
+
+      await expect(
+        service.confirmEmailChange(user.id, 'old-code'),
+      ).rejects.toThrow(new NotFoundException('No pending email change'));
+
+      expect(emailVerificationServiceMock.confirm).not.toHaveBeenCalled();
+      expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
+      expect(usersRepoMock.save).toHaveBeenCalledTimes(1);
+      expect(savedUser.email).toBe('admin-assigned@example.com');
+      expect(savedUser.pendingEmail).toBeNull();
+    });
+
     it.each(['deleted-victim-id@deleted.local', 'user@DELETED.LOCAL'])(
       'rejects an admin assigning %s without changing the user',
       async (email) => {
@@ -391,7 +427,7 @@ describe('UsersService', () => {
     );
 
     it('rejects an admin email change with 409 when the email is already taken by someone else', async () => {
-      const user = buildUser();
+      const user = buildUser({ pendingEmail: 'pending@example.com' });
       usersRepoMock.findOneBy.mockResolvedValue(user);
       usersRepoMock.findOne.mockResolvedValue(buildUser({ id: 'other-user' }));
 
@@ -404,10 +440,12 @@ describe('UsersService', () => {
       ).rejects.toThrow(ConflictException);
 
       expect(usersRepoMock.save).not.toHaveBeenCalled();
+      expect(user.email).toBe('user@example.com');
+      expect(user.pendingEmail).toBe('pending@example.com');
     });
 
-    it('does not treat the user’s own current email as a conflict', async () => {
-      const user = buildUser();
+    it('preserves the pending change when an admin submits the current email', async () => {
+      const user = buildUser({ pendingEmail: 'pending@example.com' });
       usersRepoMock.findOneBy.mockResolvedValue(user);
       usersRepoMock.findOne.mockResolvedValue(user); // findByEmail resolves to the same user
 
@@ -418,6 +456,7 @@ describe('UsersService', () => {
       );
 
       expect(result.email).toBe(user.email);
+      expect(user.pendingEmail).toBe('pending@example.com');
     });
 
     it('does not clobber untouched fields on a partial patch (regression)', async () => {
