@@ -86,6 +86,25 @@ describe('SelfOrPermissionGuard', () => {
     expect(rbacConfigServiceMock.hasPermission).not.toHaveBeenCalled();
   });
 
+  it('treats a route param differing only in letter case as self, without consulting grants', () => {
+    reflectorMock.getAllAndOverride.mockReturnValue({
+      paramName: 'id',
+      resource: 'users',
+      action: 'read',
+    });
+    const userId = '3f2b8c1e-9d4a-4e6b-8f7a-1c2d3e4f5a6b';
+
+    const result = guard.canActivate(
+      buildContext(
+        { userId, email: 'u@test.com', roles: [] },
+        { id: userId.toUpperCase() },
+      ),
+    );
+
+    expect(result).toBe(true);
+    expect(rbacConfigServiceMock.hasPermission).not.toHaveBeenCalled();
+  });
+
   it('allows access to another user’s resource when RbacConfigService.hasPermission grants it', () => {
     reflectorMock.getAllAndOverride.mockReturnValue({
       paramName: 'id',

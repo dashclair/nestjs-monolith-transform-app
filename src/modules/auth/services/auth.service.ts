@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   ConflictException,
-  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -10,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { Transactional } from 'typeorm-transactional';
 
+import { clearAuthCookies } from '@/core/auth/cookie.util';
 import { TokenService, TokenPair } from '@/core/auth/services/token.service';
 import { ConfigService } from '@/core/config/config.service';
 import { User } from '@/modules/users/entities/user.entity';
@@ -21,6 +23,10 @@ import { EmailVerificationPurpose } from '../../../core/email-verification/email
 import { LoginDto } from '../dto/login.dto';
 import { EmailVerificationMethod } from '../../../core/email-verification/email-verification-method.enum';
 import { FastifyReply } from 'fastify';
+import { RefreshSessionService } from './refresh-session.service';
+import type { SessionMeta } from './refresh-session.service';
+import { isUniqueViolation } from '@/common/database/is-unique-violation';
+import { AuthSettingsService } from '@/modules/settings/auth-settings.service';
 
 @Injectable()
 export class AuthService {
@@ -37,6 +43,8 @@ export class AuthService {
     private readonly emailVerificationService: EmailVerificationService,
     private readonly configService: ConfigService,
     private readonly tokenService: TokenService,
+    private readonly refreshSessionService: RefreshSessionService,
+    private readonly authSettings: AuthSettingsService,
   ) {}
 
   private async findUserForConfirmation(email: string): Promise<User> {
@@ -49,6 +57,21 @@ export class AuthService {
     return user;
   }
 
+  private async startSession(
+    user: User,
+    meta?: SessionMeta,
+  ): Promise<TokenPair> {
+    const jti = randomUUID();
+    const tokens = await this.tokenService.issueTokens(user, jti);
+    await this.refreshSessionService.create(
+      user.id,
+      jti,
+      tokens.refreshToken,
+      meta,
+    );
+    return tokens;
+  }
+
   @Transactional()
   async register(email: string, password: string) {
     this.logger.log({ event: 'auth.register.attempt', email });
@@ -59,16 +82,23 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
-    const requireConfirmation =
-      String(
-        this.configService.get('AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION'),
-      ) === 'true';
+    const settings = await this.authSettings.getEffectiveSettings();
+    const requireConfirmation = settings.registrationConfirmationRequired;
     const passwordHash = await this.passwordService.hash(password);
-    const user = await this.usersService.create({
-      email,
-      passwordHash,
-      isEmailVerified: !requireConfirmation,
-    });
+    let user: User;
+    try {
+      user = await this.usersService.create({
+        email,
+        passwordHash,
+        isEmailVerified: false,
+      });
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        this.logger.warn({ event: 'auth.register.conflict', email });
+        throw new ConflictException('Email already registered');
+      }
+      throw error;
+    }
 
     if (!requireConfirmation) {
       this.logger.log({
@@ -76,13 +106,19 @@ export class AuthService {
         email,
         requiresConfirmation: false,
       });
-      return { id: user.id, email: user.email, createdAt: user.createdAt };
+      return {
+        id: user.id,
+        email: user.email,
+        createdAt: user.createdAt,
+        isEmailVerified: false,
+      };
     }
 
     const { method } = await this.emailVerificationService.issueAndSend(
       user.id,
       EmailVerificationPurpose.REGISTER,
       email,
+      settings.registrationConfirmationMethod,
     );
 
     this.logger.log({
@@ -95,10 +131,14 @@ export class AuthService {
   }
 
   @Transactional()
-  async login(dto: LoginDto): Promise<
+  async login(
+    dto: LoginDto,
+    meta?: SessionMeta,
+  ): Promise<
     | TokenPair
     | {
         requiresConfirmation: true;
+        purpose: EmailVerificationPurpose;
         method: EmailVerificationMethod;
         email: string;
       }
@@ -111,6 +151,15 @@ export class AuthService {
         event: 'auth.login.failed',
         email: dto.email,
         reason: 'user_not_found',
+      });
+      throw new UnauthorizedException(AuthService.INVALID_CREDENTIALS_MESSAGE);
+    }
+
+    if (user.deletedAt) {
+      this.logger.warn({
+        event: 'auth.login.failed',
+        userId: user.id,
+        reason: 'user_deleted',
       });
       throw new UnauthorizedException(AuthService.INVALID_CREDENTIALS_MESSAGE);
     }
@@ -153,22 +202,31 @@ export class AuthService {
     user.lockedUntil = null;
     await this.usersService.save(user);
 
-    if (!user.isEmailVerified) {
-      this.logger.warn({
-        event: 'auth.login.failed',
+    const settings = await this.authSettings.getEffectiveSettings();
+    if (settings.registrationConfirmationRequired && !user.isEmailVerified) {
+      const { method } = await this.emailVerificationService.issueAndSend(
+        user.id,
+        EmailVerificationPurpose.REGISTER,
+        user.email,
+        settings.registrationConfirmationMethod,
+      );
+      this.logger.log({
+        event: 'auth.login.email_confirmation_required',
         userId: user.id,
-        reason: 'email_not_verified',
+        method,
       });
-      throw new ForbiddenException('Email not verified');
+      return {
+        requiresConfirmation: true,
+        purpose: EmailVerificationPurpose.REGISTER,
+        method,
+        email: user.email,
+      };
     }
 
-    const requireLoginConfirmation =
-      String(
-        this.configService.get('AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION'),
-      ) === 'true';
+    const requireLoginConfirmation = settings.loginConfirmationRequired;
 
     if (!requireLoginConfirmation) {
-      const tokens = await this.tokenService.issueTokens(user);
+      const tokens = await this.startSession(user, meta);
       this.logger.log({ event: 'auth.login.success', userId: user.id });
       return tokens;
     }
@@ -177,17 +235,27 @@ export class AuthService {
       user.id,
       EmailVerificationPurpose.LOGIN,
       user.email,
+      settings.loginConfirmationMethod,
     );
     this.logger.log({
       event: 'auth.login.success',
       userId: user.id,
       requiresConfirmation: true,
     });
-    return { requiresConfirmation: true, method, email: user.email };
+    return {
+      requiresConfirmation: true,
+      purpose: EmailVerificationPurpose.LOGIN,
+      method,
+      email: user.email,
+    };
   }
 
   @Transactional()
-  async confirmLoginOtp(email: string, code: string): Promise<TokenPair> {
+  async confirmLoginOtp(
+    email: string,
+    code: string,
+    meta?: SessionMeta,
+  ): Promise<TokenPair> {
     const user = await this.findUserForConfirmation(email);
 
     await this.emailVerificationService.confirm(
@@ -196,7 +264,7 @@ export class AuthService {
       EmailVerificationPurpose.LOGIN,
     );
 
-    const tokens = await this.tokenService.issueTokens(user);
+    const tokens = await this.startSession(user, meta);
     this.logger.log({
       event: 'auth.login.confirmation_confirmed',
       userId: user.id,
@@ -208,6 +276,7 @@ export class AuthService {
   async confirmLoginMagicLink(
     email: string,
     token: string,
+    meta?: SessionMeta,
   ): Promise<TokenPair> {
     const user = await this.findUserForConfirmation(email);
 
@@ -217,7 +286,7 @@ export class AuthService {
       EmailVerificationPurpose.LOGIN,
     );
 
-    const tokens = await this.tokenService.issueTokens(user);
+    const tokens = await this.startSession(user, meta);
     this.logger.log({
       event: 'auth.login.confirmation_confirmed',
       userId: user.id,
@@ -240,18 +309,20 @@ export class AuthService {
       );
     }
 
+    const settings = await this.authSettings.getEffectiveSettings();
+
     await this.emailVerificationService.issueAndSend(
       user.id,
       EmailVerificationPurpose.LOGIN,
       email,
+      settings.loginConfirmationMethod,
     );
 
     this.logger.log({ event: 'auth.login.confirmation_sent', email });
     return { sent: true as const };
   }
 
-  @Transactional()
-  async refresh(refreshToken: string): Promise<TokenPair> {
+  async refresh(refreshToken: string, meta?: SessionMeta): Promise<TokenPair> {
     const payload = await this.tokenService.verifyRefreshToken(refreshToken);
     const user = await this.usersService.findById(payload.sub, ['roles']);
 
@@ -263,7 +334,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const tokens = await this.tokenService.issueTokens(user);
+    const newJti = randomUUID();
+    const tokens = await this.tokenService.issueTokens(user, newJti);
+    await this.refreshSessionService.rotate(
+      payload.jti,
+      refreshToken,
+      newJti,
+      tokens.refreshToken,
+      meta,
+    );
+
     this.logger.log({ event: 'auth.refresh.success', userId: user.id });
     return tokens;
   }
@@ -301,7 +381,7 @@ export class AuthService {
   }
 
   @Transactional()
-  async resend(email: string) {
+  async resendRegisterConfirmation(email: string) {
     const user = await this.findUserForConfirmation(email);
 
     const canResend = await this.emailVerificationService.canResend(
@@ -315,23 +395,33 @@ export class AuthService {
       );
     }
 
+    const settings = await this.authSettings.getEffectiveSettings();
+
     await this.emailVerificationService.issueAndSend(
       user.id,
       EmailVerificationPurpose.REGISTER,
       email,
+      settings.registrationConfirmationMethod,
     );
 
     this.logger.log({ event: 'auth.email_verification.resend', email });
     return { sent: true as const };
   }
 
-  async logout(response: FastifyReply, accessToken?: string): Promise<void> {
-    response.clearCookie('access_token', { path: '/' });
-    response.clearCookie('refresh_token', { path: '/auth/refresh' });
+  async logout(response: FastifyReply, refreshToken?: string): Promise<void> {
+    clearAuthCookies(response);
 
-    const payload = accessToken
-      ? await this.tokenService.verifyAccessToken(accessToken)
+    // Logout must succeed even with a missing/expired/forged token — there's
+    // just nothing to revoke then.
+    const payload = refreshToken
+      ? await this.tokenService
+          .verifyRefreshToken(refreshToken)
+          .catch(() => null)
       : null;
+
+    if (payload) {
+      await this.refreshSessionService.revoke(payload.jti);
+    }
 
     this.logger.log({
       event: 'auth.logout',

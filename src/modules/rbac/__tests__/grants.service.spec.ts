@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Repository } from 'typeorm';
@@ -55,7 +59,10 @@ describe('GrantsService', () => {
         GrantsService,
         { provide: getRepositoryToken(Grant), useValue: grantsRepoMock },
         { provide: getRepositoryToken(Role), useValue: rolesRepoMock },
-        { provide: getRepositoryToken(Permission), useValue: permissionsRepoMock },
+        {
+          provide: getRepositoryToken(Permission),
+          useValue: permissionsRepoMock,
+        },
         { provide: RbacConfigService, useValue: rbacConfigServiceMock },
       ],
     }).compile();
@@ -68,7 +75,10 @@ describe('GrantsService', () => {
       rolesRepoMock.findOneBy.mockResolvedValue(null);
 
       await expect(
-        service.create({ roleId: 'missing', permissionId: permission.id }, 'actor-id'),
+        service.create(
+          { roleId: 'missing', permissionId: permission.id },
+          'actor-id',
+        ),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -77,7 +87,10 @@ describe('GrantsService', () => {
       permissionsRepoMock.findOneBy.mockResolvedValue(null);
 
       await expect(
-        service.create({ roleId: role.id, permissionId: 'missing' }, 'actor-id'),
+        service.create(
+          { roleId: role.id, permissionId: 'missing' },
+          'actor-id',
+        ),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -87,7 +100,11 @@ describe('GrantsService', () => {
 
       await expect(
         service.create(
-          { roleId: role.id, permissionId: permission.id, actions: ['publish'] },
+          {
+            roleId: role.id,
+            permissionId: permission.id,
+            actions: ['publish'],
+          },
           'actor-id',
         ),
       ).rejects.toThrow(BadRequestException);
@@ -100,7 +117,10 @@ describe('GrantsService', () => {
       grantsRepoMock.findOneBy.mockResolvedValue(buildGrant());
 
       await expect(
-        service.create({ roleId: role.id, permissionId: permission.id }, 'actor-id'),
+        service.create(
+          { roleId: role.id, permissionId: permission.id },
+          'actor-id',
+        ),
       ).rejects.toThrow(ConflictException);
     });
 
@@ -127,8 +147,12 @@ describe('GrantsService', () => {
       rolesRepoMock.findOneBy.mockResolvedValue(role);
       permissionsRepoMock.findOneBy.mockResolvedValue(permission);
       grantsRepoMock.findOneBy.mockResolvedValue(null);
-      grantsRepoMock.create.mockReturnValue(buildGrant({ actions: ['create'] }) as never);
-      grantsRepoMock.save.mockResolvedValue(buildGrant({ actions: ['create'] }));
+      grantsRepoMock.create.mockReturnValue(
+        buildGrant({ actions: ['create'] }) as never,
+      );
+      grantsRepoMock.save.mockResolvedValue(
+        buildGrant({ actions: ['create'] }),
+      );
 
       await service.create(
         { roleId: role.id, permissionId: permission.id, actions: ['create'] },
@@ -160,7 +184,9 @@ describe('GrantsService', () => {
 
     it('updates actions and reloads the cache', async () => {
       grantsRepoMock.findOne.mockResolvedValue(buildGrant());
-      grantsRepoMock.save.mockResolvedValue(buildGrant({ actions: ['create'] }));
+      grantsRepoMock.save.mockResolvedValue(
+        buildGrant({ actions: ['create'] }),
+      );
 
       const result = await service.update(
         'grant-id',
@@ -172,14 +198,16 @@ describe('GrantsService', () => {
       expect(rbacConfigServiceMock.reload).toHaveBeenCalledTimes(1);
     });
 
-    it('clears the actions restriction back to null (all actions) when an empty update is sent', async () => {
-      grantsRepoMock.findOne.mockResolvedValue(buildGrant({ actions: ['create'] }));
-      grantsRepoMock.save.mockResolvedValue(buildGrant({ actions: null }));
+    it('clears the actions restriction (all actions) when an empty actions array is sent', async () => {
+      grantsRepoMock.findOne.mockResolvedValue(
+        buildGrant({ actions: ['create'] }),
+      );
+      grantsRepoMock.save.mockResolvedValue(buildGrant({ actions: [] }));
 
-      await service.update('grant-id', {}, 'actor-id');
+      await service.update('grant-id', { actions: [] }, 'actor-id');
 
       expect(grantsRepoMock.save).toHaveBeenCalledWith(
-        expect.objectContaining({ actions: null }),
+        expect.objectContaining({ actions: [] }),
       );
     });
   });

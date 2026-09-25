@@ -1,6 +1,6 @@
-import { Injectable } from "@nestjs/common";
-import { UserProfileField } from "../types/user-profile-policy.types";
-import { SelfOrPermissionAccess } from "@/modules/rbac";
+import { Injectable } from '@nestjs/common';
+import { UserProfileField } from '../types/user-profile-policy.types';
+import { SelfOrPermissionAccess } from '@/modules/rbac';
 
 const SELF_PROFILE_FIELDS: UserProfileField[] = [
   UserProfileField.Id,
@@ -21,7 +21,7 @@ const USERS_READ_PROFILE_FIELDS: UserProfileField[] = [
 export class UserProfileFieldsPolicy {
   getAllowedFields(access: SelfOrPermissionAccess) {
     if (access.type === 'self') {
-      return SELF_PROFILE_FIELDS
+      return SELF_PROFILE_FIELDS;
     }
 
     if (
@@ -36,4 +36,3 @@ export class UserProfileFieldsPolicy {
     return [];
   }
 }
-

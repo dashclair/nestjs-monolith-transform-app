@@ -28,22 +28,24 @@ const CONFIRMATION_METHOD_CONFIG_KEY: Record<
   [EmailVerificationPurpose.LOGIN]: 'AUTH_LOGIN_CONFIRMATION_METHOD',
   [EmailVerificationPurpose.EMAIL_CHANGE]:
     'AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD',
-  [EmailVerificationPurpose.DELETE_ACCOUNT]: 'DELETE_ACCOUNT_CONFIRMATION_METHOD',
+  [EmailVerificationPurpose.DELETE_ACCOUNT]:
+    'DELETE_ACCOUNT_CONFIRMATION_METHOD',
 };
 
 // Per-purpose wording for the "nothing to confirm" 404 — callers each have
 // their own vocabulary for what a pending verification represents (account
 // deletion wants "No pending deletion request", not the generic email-change
 // phrasing).
-const NO_PENDING_VERIFICATION_MESSAGE: Record<EmailVerificationPurpose, string> =
-  {
-    [EmailVerificationPurpose.REGISTER]:
-      'No pending confirmation for this email',
-    [EmailVerificationPurpose.LOGIN]: 'No pending confirmation for this email',
-    [EmailVerificationPurpose.EMAIL_CHANGE]:
-      'No pending confirmation for this email',
-    [EmailVerificationPurpose.DELETE_ACCOUNT]: 'No pending deletion request',
-  };
+const NO_PENDING_VERIFICATION_MESSAGE: Record<
+  EmailVerificationPurpose,
+  string
+> = {
+  [EmailVerificationPurpose.REGISTER]: 'No pending confirmation for this email',
+  [EmailVerificationPurpose.LOGIN]: 'No pending confirmation for this email',
+  [EmailVerificationPurpose.EMAIL_CHANGE]:
+    'No pending confirmation for this email',
+  [EmailVerificationPurpose.DELETE_ACCOUNT]: 'No pending deletion request',
+};
 
 @Injectable()
 export class EmailVerificationService {
@@ -54,14 +56,19 @@ export class EmailVerificationService {
     private readonly repo: Repository<EmailVerification>,
     private readonly configService: ConfigService,
     private readonly mailerService: MailerService,
-  ) { }
+  ) {}
 
   async issueAndSend(
     userId: string,
     purpose: EmailVerificationPurpose,
     targetEmail: string,
+    selectedMethod?: EmailVerificationMethod,
   ): Promise<{ method: EmailVerificationMethod }> {
-    const { method, plaintext } = await this.issue(userId, purpose);
+    const { method, plaintext } = await this.issue(
+      userId,
+      purpose,
+      selectedMethod,
+    );
 
     const sent = await this.mailerService.sendMail({
       to: targetEmail,
@@ -81,10 +88,13 @@ export class EmailVerificationService {
   async issue(
     userId: string,
     purpose: EmailVerificationPurpose,
+    selectedMethod?: EmailVerificationMethod,
   ): Promise<{ method: EmailVerificationMethod; plaintext: string }> {
-    const method = this.configService.get(
-      CONFIRMATION_METHOD_CONFIG_KEY[purpose],
-    ) as EmailVerificationMethod;
+    const method =
+      selectedMethod ??
+      (this.configService.get(
+        CONFIRMATION_METHOD_CONFIG_KEY[purpose],
+      ) as EmailVerificationMethod);
 
     const plaintext =
       method === EmailVerificationMethod.OTP

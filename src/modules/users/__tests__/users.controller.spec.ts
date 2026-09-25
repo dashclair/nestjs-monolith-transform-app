@@ -59,7 +59,10 @@ describe('UsersController', () => {
   describe('getUsersList', () => {
     it('delegates to UsersListService.getUsersList with the validated query and the actor id', async () => {
       const query = Object.assign(new ListUsersQueryDto(), { q: 'ivan' });
-      const serviceResult: ListUsersResponseDto = { items: [], nextCursor: null };
+      const serviceResult: ListUsersResponseDto = {
+        items: [],
+        nextCursor: null,
+      };
       usersListServiceMock.getUsersList.mockResolvedValue(serviceResult);
       const request = { user: { userId: 'admin-1' } } as Parameters<
         UsersController['getUsersList']
@@ -67,7 +70,10 @@ describe('UsersController', () => {
 
       const result = await controller.getUsersList(query, request);
 
-      expect(usersListServiceMock.getUsersList).toHaveBeenCalledWith(query, 'admin-1');
+      expect(usersListServiceMock.getUsersList).toHaveBeenCalledWith(
+        query,
+        'admin-1',
+      );
       expect(result).toBe(serviceResult);
     });
   });

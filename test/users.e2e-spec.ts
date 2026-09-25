@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import fastifyCookie from '@fastify/cookie';
 import { ValidationPipe } from '@nestjs/common';
 import {
@@ -67,30 +69,15 @@ describe('Users profile & email change (e2e)', () => {
 
   const MAILPIT_URL = 'http://localhost:8025';
 
-  const extractCookieValue = (res: request.Response, name: string): string => {
-    const setCookieHeader = res.headers['set-cookie'] as unknown as
-      | string[]
-      | undefined;
-    const cookie = setCookieHeader?.find((c) => c.startsWith(`${name}=`));
-    if (!cookie) {
-      throw new Error(
-        `Expected a Set-Cookie header for "${name}", got: ${JSON.stringify(setCookieHeader)}`,
-      );
-    }
-    return cookie.split(';')[0].split('=')[1];
-  };
-
   const login = (email: string, password = PASSWORD) =>
-    request(app.getHttpServer())
-      .post('/auth/login')
-      .send({ email, password });
+    request(app.getHttpServer()).post('/auth/login').send({ email, password });
 
   const findUser = (email: string): Promise<User> =>
     usersRepo.findOneOrFail({ where: { email }, relations: ['roles'] });
 
   const tokenFor = async (email: string): Promise<string> => {
     const user = await findUser(email);
-    const { accessToken } = await tokenService.issueTokens(user);
+    const { accessToken } = await tokenService.issueTokens(user, randomUUID());
     return accessToken;
   };
 
@@ -116,9 +103,7 @@ describe('Users profile & email change (e2e)', () => {
   const messagesTo = async (email: string): Promise<MailpitMessage[]> => {
     const res = await fetch(`${MAILPIT_URL}/api/v1/messages`);
     const json = (await res.json()) as { messages: MailpitMessage[] };
-    return json.messages.filter((m) =>
-      m.To.some((t) => t.Address === email),
-    );
+    return json.messages.filter((m) => m.To.some((t) => t.Address === email));
   };
 
   // MailerService.sendMail() is awaited inside the same request that
@@ -190,15 +175,15 @@ describe('Users profile & email change (e2e)', () => {
       .get('/admin/rbac/permissions')
       .set('Authorization', `Bearer ${adminToken}`)
       .expect(200);
-    const usersPermission = permissionsRes.body.find(
-      (p: { name: string }) => p.name === 'users',
-    );
+    const usersPermission = (
+      permissionsRes.body as { id: string; name: string }[]
+    ).find((p: { name: string }) => p.name === 'users');
     await request(app.getHttpServer())
       .post('/admin/rbac/grants')
       .set('Authorization', `Bearer ${adminToken}`)
       .send({
-        roleId: roleRes.body.id,
-        permissionId: usersPermission.id,
+        roleId: (roleRes.body as { id: string }).id,
+        permissionId: usersPermission!.id,
         actions: ['update'],
       })
       .expect(201);
@@ -221,8 +206,9 @@ describe('Users profile & email change (e2e)', () => {
         .send({ photo: 'https://example.com/self.jpg' })
         .expect(200);
 
-      expect(res.body.photo).toBe('https://example.com/self.jpg');
-      expect(res.body.email).toBe(SELF_EMAIL);
+      const body = res.body as { photo: string; email: string };
+      expect(body.photo).toBe('https://example.com/self.jpg');
+      expect(body.email).toBe(SELF_EMAIL);
     });
 
     it('rejects self passing email with 403 and the specific hint to use /email-change', async () => {
@@ -235,7 +221,7 @@ describe('Users profile & email change (e2e)', () => {
         .send({ email: 'sneaky@example.com' })
         .expect(403);
 
-      expect(res.body.message).toBe(
+      expect((res.body as { message: string }).message).toBe(
         'Cannot change email via this endpoint — use /email-change',
       );
 
@@ -265,7 +251,9 @@ describe('Users profile & email change (e2e)', () => {
         .send({ email: ADMIN_TARGET_NEW_EMAIL })
         .expect(200);
 
-      expect(res.body.email).toBe(ADMIN_TARGET_NEW_EMAIL);
+      expect((res.body as { email: string }).email).toBe(
+        ADMIN_TARGET_NEW_EMAIL,
+      );
       expect(await messagesTo(ADMIN_TARGET_NEW_EMAIL)).toHaveLength(0);
     });
 
@@ -290,7 +278,9 @@ describe('Users profile & email change (e2e)', () => {
         .send({ photo: 'https://example.com/via-grant.jpg' })
         .expect(200);
 
-      expect(res.body.photo).toBe('https://example.com/via-grant.jpg');
+      expect((res.body as { photo: string }).photo).toBe(
+        'https://example.com/via-grant.jpg',
+      );
     });
   });
 
@@ -342,71 +332,63 @@ describe('Users profile & email change (e2e)', () => {
         .expect(404);
     });
 
-    it(
-      'sends the code only to the new address, confirms with it, and the old email can no longer log in',
-      async () => {
-        const user = await findUser(CHANGE_EMAIL);
-        const token = await tokenFor(CHANGE_EMAIL);
-        await clearMailbox();
+    it('sends the code only to the new address, confirms with it, and the old email can no longer log in', async () => {
+      const user = await findUser(CHANGE_EMAIL);
+      const token = await tokenFor(CHANGE_EMAIL);
+      await clearMailbox();
 
-        const initiateRes = await request(app.getHttpServer())
-          .post(`/users/${user.id}/email-change`)
-          .set('Authorization', `Bearer ${token}`)
-          .send({ newEmail: CHANGE_NEW_EMAIL })
-          .expect(200);
+      const initiateRes = await request(app.getHttpServer())
+        .post(`/users/${user.id}/email-change`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ newEmail: CHANGE_NEW_EMAIL })
+        .expect(200);
 
-        expect(initiateRes.body).toEqual({
-          requiresConfirmation: true,
-          method: EmailVerificationMethod.OTP,
-        });
+      expect(initiateRes.body).toEqual({
+        requiresConfirmation: true,
+        method: EmailVerificationMethod.OTP,
+      });
 
-        const code = await waitForCodeSentTo(CHANGE_NEW_EMAIL);
-        expect(await messagesTo(CHANGE_EMAIL)).toHaveLength(0);
+      const code = await waitForCodeSentTo(CHANGE_NEW_EMAIL);
+      expect(await messagesTo(CHANGE_EMAIL)).toHaveLength(0);
 
-        const confirmRes = await request(app.getHttpServer())
-          .post(`/users/${user.id}/email-change/confirm`)
-          .set('Authorization', `Bearer ${token}`)
-          .send({ code })
-          .expect(200);
-        expect(confirmRes.body).toEqual({ email: CHANGE_NEW_EMAIL });
+      const confirmRes = await request(app.getHttpServer())
+        .post(`/users/${user.id}/email-change/confirm`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ code })
+        .expect(200);
+      expect(confirmRes.body).toEqual({ email: CHANGE_NEW_EMAIL });
 
-        await login(CHANGE_EMAIL).expect(401);
-        await login(CHANGE_NEW_EMAIL).expect(200);
-      },
-      15000,
-    );
+      await login(CHANGE_EMAIL).expect(401);
+      await login(CHANGE_NEW_EMAIL).expect(200);
+    }, 15000);
 
-    it(
-      'increments the attempt count on a wrong code and locks out with 429 past the limit',
-      async () => {
-        const user = await findUser(WRONG_CODE_EMAIL);
-        const token = await tokenFor(WRONG_CODE_EMAIL);
+    it('increments the attempt count on a wrong code and locks out with 429 past the limit', async () => {
+      const user = await findUser(WRONG_CODE_EMAIL);
+      const token = await tokenFor(WRONG_CODE_EMAIL);
 
-        await request(app.getHttpServer())
-          .post(`/users/${user.id}/email-change`)
-          .set('Authorization', `Bearer ${token}`)
-          .send({ newEmail: WRONG_CODE_NEW_EMAIL })
-          .expect(200);
+      await request(app.getHttpServer())
+        .post(`/users/${user.id}/email-change`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ newEmail: WRONG_CODE_NEW_EMAIL })
+        .expect(200);
 
-        // EMAIL_VERIFICATION_MAX_ATTEMPTS=5 by default (.env.example).
-        for (let attempt = 0; attempt < 5; attempt++) {
-          await request(app.getHttpServer())
-            .post(`/users/${user.id}/email-change/confirm`)
-            .set('Authorization', `Bearer ${token}`)
-            .send({ code: 'wrong-code' })
-            .expect(400);
-        }
-
+      // EMAIL_VERIFICATION_MAX_ATTEMPTS=5 by default (.env.example).
+      for (let attempt = 0; attempt < 5; attempt++) {
         await request(app.getHttpServer())
           .post(`/users/${user.id}/email-change/confirm`)
           .set('Authorization', `Bearer ${token}`)
           .send({ code: 'wrong-code' })
-          .expect(429);
+          .expect(400);
+      }
 
-        const reloaded = await usersRepo.findOneByOrFail({ id: user.id });
-        expect(reloaded.email).toBe(WRONG_CODE_EMAIL);
-      },
-      15000,
-    );
+      await request(app.getHttpServer())
+        .post(`/users/${user.id}/email-change/confirm`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ code: 'wrong-code' })
+        .expect(429);
+
+      const reloaded = await usersRepo.findOneByOrFail({ id: user.id });
+      expect(reloaded.email).toBe(WRONG_CODE_EMAIL);
+    }, 15000);
   });
 });

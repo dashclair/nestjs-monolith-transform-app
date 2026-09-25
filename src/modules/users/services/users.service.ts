@@ -1,8 +1,18 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Propagation, Transactional } from 'typeorm-transactional';
 import { Repository } from 'typeorm';
 
+import { isUniqueViolation } from '@/common/database/is-unique-violation';
+import { isSameId } from '@/common/utils/is-same-id';
+import { isReservedEmail } from '@/common/validation/is-reserved-email';
 import { DEFAULT_ROLE_NAME } from '@/modules/rbac/rbac.constants';
 import { Role } from '@/modules/rbac/entities/role.entity';
 
@@ -20,7 +30,7 @@ import { EmailVerificationMethod } from '@/core/email-verification/email-verific
 
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name)
+  private readonly logger = new Logger(UsersService.name);
   constructor(
     @InjectRepository(User) private readonly repo: Repository<User>,
     @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
@@ -28,7 +38,7 @@ export class UsersService {
     private readonly userProfileFieldsPolicy: UserProfileFieldsPolicy,
     private readonly userUpdateFieldsPolicy: UserUpdateFieldsPolicy,
     private readonly emailVerificationService: EmailVerificationService,
-  ) { }
+  ) {}
 
   findByEmail(email: string, relations: string[] = []): Promise<User | null> {
     return this.repo.findOne({ where: { email }, relations });
@@ -65,6 +75,10 @@ export class UsersService {
     isEmailVerified: boolean;
     roles?: Role[];
   }): Promise<User> {
+    if (isReservedEmail(data.email)) {
+      throw new BadRequestException('Email domain is reserved');
+    }
+
     const roles = data.roles ?? (await this.findDefaultRole());
     return this.repo.save(this.repo.create({ ...data, roles }));
   }
@@ -87,8 +101,7 @@ export class UsersService {
     userId: string,
     access: SelfOrPermissionAccess,
   ): Promise<UserProfileDto> {
-    const allowedFields =
-      this.userProfileFieldsPolicy.getAllowedFields(access);
+    const allowedFields = this.userProfileFieldsPolicy.getAllowedFields(access);
 
     const isAllowed = (field: UserProfileField) =>
       allowedFields.includes(field);
@@ -152,14 +165,13 @@ export class UsersService {
   async updateUser(
     userId: string,
     dto: UpdateUserDto,
-    access: SelfOrPermissionAccess) {
+    access: SelfOrPermissionAccess,
+  ) {
+    const allowedFields = this.userUpdateFieldsPolicy.getAllowedFields(access);
 
-    const allowedFields =
-      this.userUpdateFieldsPolicy.getAllowedFields(access);
-
-    const requestedFields = (Object.keys(dto) as Array<keyof UpdateUserDto>).filter(
-      (field) => dto[field] !== undefined,
-    );
+    const requestedFields = (
+      Object.keys(dto) as Array<keyof UpdateUserDto>
+    ).filter((field) => dto[field] !== undefined);
 
     const forbiddenFields = requestedFields.filter(
       (field) => !allowedFields.includes(field),
@@ -179,14 +191,22 @@ export class UsersService {
 
     const user = await this.repo.findOneBy({ id: userId });
 
-    if (!user) {
+    if (!user || user.deletedAt) {
       throw new NotFoundException('User not found');
     }
 
     if (dto.email !== undefined) {
+      if (isReservedEmail(dto.email)) {
+        throw new BadRequestException('Email domain is reserved');
+      }
+
       const existing = await this.findByEmail(dto.email);
-      if (existing && existing.id !== userId) {
+      if (existing && !isSameId(existing.id, userId)) {
         throw new ConflictException('Email already registered');
+      }
+
+      if (dto.email !== user.email) {
+        user.pendingEmail = null;
       }
     }
 
@@ -216,6 +236,10 @@ export class UsersService {
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (isReservedEmail(newEmail)) {
+      throw new BadRequestException('Email domain is reserved');
     }
 
     if (user.email === newEmail) {
@@ -259,6 +283,19 @@ export class UsersService {
       throw new NotFoundException('No pending email change');
     }
 
+    // Also reject pending addresses stored before the domain was reserved.
+    if (isReservedEmail(user.pendingEmail)) {
+      throw new BadRequestException('Email domain is reserved');
+    }
+
+    // The address was free at initiateEmailChange(), but someone may have
+    // registered it (or an admin assigned it) since. Checked before confirm()
+    // so the code isn't consumed on a request that can't succeed.
+    const existing = await this.findByEmail(user.pendingEmail);
+    if (existing && !isSameId(existing.id, user.id)) {
+      throw new ConflictException('Email already registered');
+    }
+
     await this.emailVerificationService.confirm(
       user.id,
       code,
@@ -267,7 +304,15 @@ export class UsersService {
 
     user.email = user.pendingEmail;
     user.pendingEmail = null;
-    await this.repo.save(user);
+    try {
+      await this.repo.save(user);
+    } catch (error) {
+      // Lost the race between the check above and this write.
+      if (isUniqueViolation(error)) {
+        throw new ConflictException('Email already registered');
+      }
+      throw error;
+    }
 
     this.logger.log({
       event: 'users.email_change.confirmed',
@@ -308,11 +353,18 @@ export class UsersService {
   }
 
   @Transactional()
-  async confirmDelete(userId: string, code: string): Promise<{ deleted: true }> {
+  async confirmDelete(
+    userId: string,
+    code: string,
+  ): Promise<{ deleted: true }> {
     const user = await this.findById(userId);
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (user.deletedAt) {
+      throw new ConflictException('User already deleted');
     }
 
     try {
@@ -344,7 +396,7 @@ export class UsersService {
     targetUserId: string,
     actorUserId: string,
   ): Promise<{ deleted: true }> {
-    if (actorUserId === targetUserId) {
+    if (isSameId(actorUserId, targetUserId)) {
       throw new ForbiddenException(
         'Use POST /users/:id/delete-request to delete your own account',
       );

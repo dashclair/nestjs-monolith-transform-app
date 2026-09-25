@@ -29,7 +29,10 @@ describe('SelfOnlyGuard', () => {
     vi.clearAllMocks();
 
     const module: TestingModule = await Test.createTestingModule({
-      providers: [SelfOnlyGuard, { provide: Reflector, useValue: reflectorMock }],
+      providers: [
+        SelfOnlyGuard,
+        { provide: Reflector, useValue: reflectorMock },
+      ],
     }).compile();
 
     guard = module.get(SelfOnlyGuard);
@@ -54,6 +57,30 @@ describe('SelfOnlyGuard', () => {
     );
 
     expect(result).toBe(true);
+  });
+
+  it('treats a route param differing only in letter case as the user’s own resource', () => {
+    reflectorMock.getAllAndOverride.mockReturnValue('userId');
+    const userId = '3f2b8c1e-9d4a-4e6b-8f7a-1c2d3e4f5a6b';
+
+    const result = guard.canActivate(
+      buildContext(
+        { userId, email: 'u@test.com', roles: [] },
+        { userId: userId.toUpperCase() },
+      ),
+    );
+
+    expect(result).toBe(true);
+  });
+
+  it('throws ForbiddenException (not a TypeError) when the route param is missing', () => {
+    reflectorMock.getAllAndOverride.mockReturnValue('userId');
+
+    expect(() =>
+      guard.canActivate(
+        buildContext({ userId: 'user-1', email: 'u@test.com', roles: [] }, {}),
+      ),
+    ).toThrow(ForbiddenException);
   });
 
   it('throws ForbiddenException when acting on a different user’s resource', () => {

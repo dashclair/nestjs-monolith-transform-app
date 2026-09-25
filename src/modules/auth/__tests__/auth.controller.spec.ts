@@ -6,6 +6,7 @@ import { ConfigService } from '@/core/config/config.service';
 
 import { AuthController } from '../auth.controller';
 import { EmailVerificationMethod } from '../../../core/email-verification/email-verification-method.enum';
+import { EmailVerificationPurpose } from '../../../core/email-verification/email-verification-purpose.enum';
 import { AuthService } from '../services/auth.service';
 
 describe('AuthController', () => {
@@ -14,7 +15,8 @@ describe('AuthController', () => {
     register: vi.fn<AuthService['register']>(),
     confirmOtp: vi.fn<AuthService['confirmOtp']>(),
     confirmMagicLink: vi.fn<AuthService['confirmMagicLink']>(),
-    resend: vi.fn<AuthService['resend']>(),
+    resendRegisterConfirmation:
+      vi.fn<AuthService['resendRegisterConfirmation']>(),
     login: vi.fn<AuthService['login']>(),
     confirmLoginOtp: vi.fn<AuthService['confirmLoginOtp']>(),
     confirmLoginMagicLink: vi.fn<AuthService['confirmLoginMagicLink']>(),
@@ -34,17 +36,23 @@ describe('AuthController', () => {
     }),
   };
 
-  function buildResponse(): FastifyReply {
+  function buildResponse(status = vi.fn()): FastifyReply {
     return {
       setCookie: vi.fn(),
       clearCookie: vi.fn(),
-      status: vi.fn(),
+      status,
     } as unknown as FastifyReply;
   }
 
   function buildRequest(cookies: Record<string, string> = {}): FastifyRequest {
-    return { cookies } as unknown as FastifyRequest;
+    return {
+      cookies,
+      headers: { 'user-agent': 'test-agent' },
+      ip: '127.0.0.1',
+    } as unknown as FastifyRequest;
   }
+
+  const meta = { userAgent: 'test-agent', ip: '127.0.0.1' };
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -74,9 +82,9 @@ describe('AuthController', () => {
       const response = buildResponse();
 
       const dto = { email: 'user@example.com', password: 'password123' };
-      const result = await controller.login(dto, response);
+      const result = await controller.login(dto, buildRequest(), response);
 
-      expect(authServiceMock.login).toHaveBeenCalledWith(dto);
+      expect(authServiceMock.login).toHaveBeenCalledWith(dto, meta);
       expect(response.setCookie).toHaveBeenCalledWith(
         'access_token',
         'access-token',
@@ -85,7 +93,7 @@ describe('AuthController', () => {
       expect(response.setCookie).toHaveBeenCalledWith(
         'refresh_token',
         'refresh-token',
-        expect.objectContaining({ httpOnly: true, path: '/auth/refresh' }),
+        expect.objectContaining({ httpOnly: true, path: '/auth' }),
       );
       expect(result).toEqual({ success: true });
     });
@@ -93,6 +101,7 @@ describe('AuthController', () => {
     it('does not set cookies and passes through the confirmation payload when login requires confirmation', async () => {
       const serviceResult = {
         requiresConfirmation: true as const,
+        purpose: EmailVerificationPurpose.LOGIN,
         method: EmailVerificationMethod.OTP,
         email: 'user@example.com',
       };
@@ -100,7 +109,7 @@ describe('AuthController', () => {
       const response = buildResponse();
 
       const dto = { email: 'user@example.com', password: 'password123' };
-      const result = await controller.login(dto, response);
+      const result = await controller.login(dto, buildRequest(), response);
 
       expect(response.setCookie).not.toHaveBeenCalled();
       expect(result).toBe(serviceResult);
@@ -118,12 +127,14 @@ describe('AuthController', () => {
 
       const result = await controller.confirmLoginOtp(
         { email: 'user@example.com', code: '123456' },
+        buildRequest(),
         response,
       );
 
       expect(authServiceMock.confirmLoginOtp).toHaveBeenCalledWith(
         'user@example.com',
         '123456',
+        meta,
       );
       expect(response.setCookie).toHaveBeenCalledTimes(2);
       expect(result).toEqual({ success: true });
@@ -141,12 +152,14 @@ describe('AuthController', () => {
 
       const result = await controller.confirmLoginLink(
         { email: 'user@example.com', token: 'abc123' },
+        buildRequest(),
         response,
       );
 
       expect(authServiceMock.confirmLoginMagicLink).toHaveBeenCalledWith(
         'user@example.com',
         'abc123',
+        meta,
       );
       expect(response.setCookie).toHaveBeenCalledTimes(2);
       expect(result).toEqual({ success: true });
@@ -181,7 +194,10 @@ describe('AuthController', () => {
 
       const result = await controller.refresh(request, response);
 
-      expect(authServiceMock.refresh).toHaveBeenCalledWith('old-refresh-token');
+      expect(authServiceMock.refresh).toHaveBeenCalledWith(
+        'old-refresh-token',
+        meta,
+      );
       expect(response.setCookie).toHaveBeenCalledWith(
         'access_token',
         'new-access-token',
@@ -190,7 +206,7 @@ describe('AuthController', () => {
       expect(response.setCookie).toHaveBeenCalledWith(
         'refresh_token',
         'new-refresh-token',
-        expect.objectContaining({ path: '/auth/refresh' }),
+        expect.objectContaining({ path: '/auth' }),
       );
       expect(result).toEqual({ success: true });
     });
@@ -208,20 +224,20 @@ describe('AuthController', () => {
   });
 
   describe('logout', () => {
-    it('delegates to AuthService.logout with the access token cookie', async () => {
+    it('delegates to AuthService.logout with the refresh token cookie', async () => {
       const response = buildResponse();
-      const request = buildRequest({ access_token: 'access-token-value' });
+      const request = buildRequest({ refresh_token: 'refresh-token-value' });
 
       const result = await controller.logout(request, response);
 
       expect(authServiceMock.logout).toHaveBeenCalledWith(
         response,
-        'access-token-value',
+        'refresh-token-value',
       );
       expect(result).toEqual({ loggedOut: true });
     });
 
-    it('still logs out when there is no access token cookie', async () => {
+    it('still logs out when there is no refresh token cookie', async () => {
       const response = buildResponse();
       const request = buildRequest();
 
@@ -238,8 +254,10 @@ describe('AuthController', () => {
         id: 'user-id',
         email: 'user@example.com',
         createdAt: new Date('2026-09-09T10:00:00.000Z'),
+        isEmailVerified: false,
       };
-      const response = buildResponse();
+      const status = vi.fn();
+      const response = buildResponse(status);
 
       authServiceMock.register.mockResolvedValue(serviceResult);
 
@@ -255,7 +273,7 @@ describe('AuthController', () => {
         'user@example.com',
         'password123',
       );
-      expect(response.status).toHaveBeenCalledWith(HttpStatus.CREATED);
+      expect(status).toHaveBeenCalledWith(HttpStatus.CREATED);
       expect(result).toBe(serviceResult);
     });
 
@@ -265,7 +283,8 @@ describe('AuthController', () => {
         method: EmailVerificationMethod.OTP,
         email: 'user@example.com',
       };
-      const response = buildResponse();
+      const status = vi.fn();
+      const response = buildResponse(status);
 
       authServiceMock.register.mockResolvedValue(serviceResult);
 
@@ -281,7 +300,7 @@ describe('AuthController', () => {
         'user@example.com',
         'password123',
       );
-      expect(response.status).toHaveBeenCalledWith(HttpStatus.OK);
+      expect(status).toHaveBeenCalledWith(HttpStatus.OK);
       expect(result).toBe(serviceResult);
     });
   });
@@ -325,11 +344,15 @@ describe('AuthController', () => {
   describe('resend', () => {
     it('should resend via AuthService and return its result', async () => {
       const serviceResult = { sent: true as const };
-      authServiceMock.resend.mockResolvedValue(serviceResult);
+      authServiceMock.resendRegisterConfirmation.mockResolvedValue(
+        serviceResult,
+      );
 
       const result = await controller.resend({ email: 'user@example.com' });
 
-      expect(authServiceMock.resend).toHaveBeenCalledWith('user@example.com');
+      expect(authServiceMock.resendRegisterConfirmation).toHaveBeenCalledWith(
+        'user@example.com',
+      );
       expect(result).toBe(serviceResult);
     });
   });

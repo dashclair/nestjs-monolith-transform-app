@@ -1,4 +1,11 @@
-import { ArrayMinSize, ArrayUnique, IsArray, IsOptional, IsString, MinLength } from 'class-validator';
+import {
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
+  IsOptional,
+  IsString,
+  MinLength,
+} from 'class-validator';
 
 export class UpdatePermissionDto {
   @IsOptional()

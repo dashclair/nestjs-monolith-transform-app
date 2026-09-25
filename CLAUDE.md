@@ -81,12 +81,13 @@ never `typeorm migration:generate` directly.
   │   ├── auth/        # JWT infra: TokenService, JwtAuthGuard, extractors, @Public(), SelfOnlyGuard
   │   ├── config/      # ConfigModule + Joi-validated, typed ConfigService
   │   ├── database/    # TypeORM + PostgreSQL connection, typeorm-transactional wiring
+  │   ├── email-verification/  # OTP/magic-link codes: issue, send, confirm, resend throttle
   │   ├── error-handling/  # AllExceptionsFilter + diagnostic TestErrorsController
   │   ├── health/      # @nestjs/terminus checks (db/memory/disk)
   │   ├── mailer/       # nodemailer wrapper (Mailpit in dev)
   │   └── throttler/    # @nestjs/throttler global guard config
   ├── database/         # TypeORM CLI data-source + migrations (*.migration.ts)
-  ├── modules/           # feature modules (auth, users, ...)
+  ├── modules/           # feature modules: auth, users, rbac, settings
   └── main.ts
   ```
 - **Config**: env vars are a flat list on the `Config` interface
@@ -120,8 +121,16 @@ never `typeorm migration:generate` directly.
   of path for the host OS).
 - **Auth module** (`src/modules/auth`): registration and login (argon2
   password hashing; optional OTP/magic-link email confirmation for each,
-  gated by `AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION` /
-  `AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION`), `refresh`, `logout`. JWTs travel
+  gated by the runtime auth settings — see **Settings** below), `refresh`,
+  `logout`. `isEmailVerified` records only an actual consumed registration
+  code: registration always stores `false`, and login checks the *current*
+  `registrationConfirmationRequired` — off: unverified users log in; on: login
+  issues a REGISTER code and returns `{ requiresConfirmation, purpose:
+  'register', method, email }` instead of tokens (never a 403). Login
+  confirmation (`purpose: 'login'`) is a separate per-login second factor.
+  `AuthService` reads the settings and passes the method to
+  `EmailVerificationService`; `core/email-verification` falls back to env
+  only for callers that pass none (email change, account deletion). JWTs travel
   in httpOnly cookies (`access_token`, `refresh_token`), with an
   `Authorization: Bearer` fallback (`core/auth/jwt-extractors.ts`);
   `JwtAuthGuard` (`core/auth`) is a global `APP_GUARD` (opt out with
@@ -137,6 +146,16 @@ never `typeorm migration:generate` directly.
   barrel (`index.ts`), not deep paths. `SelfOnlyGuard` has no RBAC dependency
   and lives in `core/auth/`. Dependencies point one way — feature modules →
   `rbac` → `core` — so don't put RBAC-dependent code in `core/`.
+- **Settings** (`src/modules/settings`): admin-managed runtime settings in a
+  key/value `settings` table (`jsonb` value), exposed at
+  `GET`/`PATCH /admin/settings/auth` (`settings:read`/`settings:update`,
+  granted to `admin` by migration). Currently the four registration/login
+  confirmation settings, defined in `auth-settings.registry.ts` with their env
+  fallbacks. Effective value = DB row if present, else env, else registry
+  default; a row overrides env even when `false`, and `PATCH` with `null`
+  deletes the row to fall back to env. Invalid stored values throw rather than
+  silently falling back. Other modules call `AuthSettingsService`; `core/`
+  must not (pass the resolved value down instead).
 - **Swagger**: served at `SWAGGER_PATH` (`APP_NAME`/`API_VERSION` from
   config), bearer auth scheme already declared even though no route enforces
   it yet.
@@ -149,6 +168,10 @@ never `typeorm migration:generate` directly.
 - `test/app.e2e-spec.ts` is inherited `nest new` boilerplate for an Express
   `GET /` route that doesn't exist on this Fastify app — known-broken, not a
   regression if it fails.
+- e2e tests run against the **same database as the dev server**
+  (`POSTGRES_DB`), so leftover `settings` rows from manual testing (e.g.
+  `loginConfirmationRequired = true`) change login behaviour and make auth/rbac
+  e2e fail — check the `settings` table before treating that as a regression.
 - Target coverage is ≥80% (`npm run test:cov`), not yet enforced in CI.
 
 ## Commit style

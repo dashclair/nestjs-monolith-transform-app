@@ -41,7 +41,10 @@ describe('PermissionsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PermissionsService,
-        { provide: getRepositoryToken(Permission), useValue: permissionsRepoMock },
+        {
+          provide: getRepositoryToken(Permission),
+          useValue: permissionsRepoMock,
+        },
         { provide: getRepositoryToken(Grant), useValue: grantsRepoMock },
         { provide: RbacConfigService, useValue: rbacConfigServiceMock },
       ],
@@ -95,7 +98,9 @@ describe('PermissionsService', () => {
     it('throws ConflictException when renaming to an already-used name', async () => {
       permissionsRepoMock.findOneBy
         .mockResolvedValueOnce(buildPermission({ name: 'articles' }))
-        .mockResolvedValueOnce(buildPermission({ id: 'other-id', name: 'comments' }));
+        .mockResolvedValueOnce(
+          buildPermission({ id: 'other-id', name: 'comments' }),
+        );
 
       await expect(
         service.update('permission-id', { name: 'comments' }, 'actor-id'),

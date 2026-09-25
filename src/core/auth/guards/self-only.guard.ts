@@ -8,6 +8,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
+import { isSameId } from '@/common/utils/is-same-id';
+
 import { RequestWithUser } from '../auth.types';
 
 export const SELF_ONLY_PARAM_KEY = 'selfOnlyParam';
@@ -30,7 +32,7 @@ export class SelfOnlyGuard implements CanActivate {
     if (!user) {
       throw new UnauthorizedException();
     }
-    if (user.userId !== request.params[paramName]) {
+    if (!isSameId(user.userId, request.params[paramName])) {
       throw new ForbiddenException();
     }
 

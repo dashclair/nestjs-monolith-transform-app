@@ -28,8 +28,12 @@ export const configValidationSchema = Joi.object<Config>({
   THROTTLE_GLOBAL_TTL: Joi.number().optional().default(10000),
   THROTTLE_GLOBAL_LIMIT: Joi.number().optional().default(10),
   THROTTLE_USERS_READ_LIMIT: Joi.number().optional().default(20), // default 20
-  THROTTLE_USERS_READ_TTL: Joi.number().optional().default(60),   // default 60 (секунд)
-  THROTTLE_USERS_LIST_LIMIT: Joi.number().integer().min(1).optional().default(20),
+  THROTTLE_USERS_READ_TTL: Joi.number().optional().default(60), // default 60 (секунд)
+  THROTTLE_USERS_LIST_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .optional()
+    .default(20),
   THROTTLE_USERS_LIST_TTL: Joi.number().integer().min(1).optional().default(60), // секунды
 
   /**
@@ -61,10 +65,11 @@ export const configValidationSchema = Joi.object<Config>({
   JWT_SECRET: Joi.string().min(32).required(),
   JWT_ACCESS_TTL: Joi.string().optional().default('15m'),
   JWT_REFRESH_TTL: Joi.string().optional().default('30d'),
-  COOKIE_SAMESITE: Joi.string().valid('lax', 'strict', 'none').optional().default('lax'),
-  COOKIE_SECURE: Joi.boolean()
+  COOKIE_SAMESITE: Joi.string()
+    .valid('lax', 'strict', 'none')
     .optional()
-    .default(false), // default false — включить в проде (HTTPS)
+    .default('lax'),
+  COOKIE_SECURE: Joi.boolean().optional().default(false), // default false — включить в проде (HTTPS)
   AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION: Joi.boolean()
     .optional()
     .default(false),

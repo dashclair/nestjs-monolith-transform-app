@@ -91,6 +91,45 @@ describe('EmailVerificationService', () => {
   });
 
   describe('issue', () => {
+    it('uses the supplied method over the env setting', async () => {
+      repoMock.findOneBy.mockResolvedValue(null);
+
+      const { method, plaintext } = await service.issue(
+        'user-id',
+        EmailVerificationPurpose.REGISTER,
+        EmailVerificationMethod.MAGIC_LINK,
+      );
+
+      expect(method).toBe(EmailVerificationMethod.MAGIC_LINK);
+      expect(plaintext).toMatch(/^[0-9a-f]{64}$/);
+      expect(repoMock.save).toHaveBeenCalledWith(
+        expect.objectContaining({ method: EmailVerificationMethod.MAGIC_LINK }),
+      );
+    });
+
+    // Regression: without the env fallback, callers that pass no method
+    // (email change, account deletion) saved an empty method and always got
+    // a magic-link token.
+    it.each([
+      EmailVerificationPurpose.EMAIL_CHANGE,
+      EmailVerificationPurpose.DELETE_ACCOUNT,
+    ])(
+      'falls back to the env method for %s when none is supplied',
+      async (purpose) => {
+        configValues.DELETE_ACCOUNT_CONFIRMATION_METHOD = 'otp';
+        repoMock.findOneBy.mockResolvedValue(null);
+
+        const { method, plaintext } = await service.issue('user-id', purpose);
+
+        expect(method).toBe(EmailVerificationMethod.OTP);
+        expect(plaintext).toMatch(/^\d{6}$/);
+        expect(repoMock.save).toHaveBeenCalledWith(
+          expect.objectContaining({ method: EmailVerificationMethod.OTP }),
+        );
+        delete configValues.DELETE_ACCOUNT_CONFIRMATION_METHOD;
+      },
+    );
+
     it('should create a new row with a hashed OTP code when none exists', async () => {
       repoMock.findOneBy.mockResolvedValue(null);
 
@@ -174,7 +213,9 @@ describe('EmailVerificationService', () => {
       expect(method).toBe(EmailVerificationMethod.MAGIC_LINK);
       expect(plaintext).toMatch(/^[0-9a-f]{64}$/);
       expect(repoMock.save).toHaveBeenCalledWith(
-        expect.objectContaining({ purpose: EmailVerificationPurpose.EMAIL_CHANGE }),
+        expect.objectContaining({
+          purpose: EmailVerificationPurpose.EMAIL_CHANGE,
+        }),
       );
 
       configValues.AUTH_EMAIL_CHANGE_CONFIRMATION_METHOD = 'otp';
@@ -225,7 +266,9 @@ describe('EmailVerificationService', () => {
         expect.objectContaining({ to: 'new-address@example.com' }),
       );
       expect(repoMock.save).toHaveBeenCalledWith(
-        expect.objectContaining({ purpose: EmailVerificationPurpose.EMAIL_CHANGE }),
+        expect.objectContaining({
+          purpose: EmailVerificationPurpose.EMAIL_CHANGE,
+        }),
       );
     });
   });

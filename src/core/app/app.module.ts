@@ -13,6 +13,7 @@ import { ThrottlerModule } from '@/core/throttler/throttler.module';
 import { AuthModule } from '@/modules/auth/auth.module';
 import { RbacModule } from '@/modules/rbac/rbac.module';
 import { UsersModule } from '@/modules/users/users.module';
+import { SettingsModule } from '@/modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { UsersModule } from '@/modules/users/users.module';
     AuthModule,
     UsersModule,
     RbacModule,
+    SettingsModule,
   ],
   controllers: [TestErrorsController],
   providers: [

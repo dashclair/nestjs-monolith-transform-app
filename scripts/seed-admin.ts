@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import 'dotenv/config';
 
+import { isReservedEmail } from '@/common/validation/is-reserved-email';
 import dataSource from '@/database/data-source';
 import { PasswordService } from '@/modules/auth/services/password.service';
 
@@ -9,6 +10,10 @@ async function main(): Promise<void> {
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
   if (!email || !password) {
     throw new Error('BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD are not set in .env');
+  }
+
+  if (isReservedEmail(email)) {
+    throw new Error('Email domain is reserved');
   }
 
   await dataSource.initialize();

@@ -10,6 +10,23 @@ export type UsersCursor = {
   order: SortOrder;
 };
 
+/**
+ * Strict check that `value` is exactly what `Date#toISOString()` produces —
+ * the only format we ever encode createdAt cursors in. `Date.parse` alone is
+ * too lenient: it accepts '1' or '2026', which Postgres then rejects with a
+ * 500. Years outside 0001–9999 are rejected too: JS round-trips year 0 and
+ * `±YYYYYY` extended years, Postgres doesn't.
+ */
+function isIsoTimestamp(value: string): boolean {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return false;
+  }
+
+  const year = date.getUTCFullYear();
+  return year >= 1 && year <= 9999 && date.toISOString() === value;
+}
+
 export function encodeUsersCursor(cursor: UsersCursor): string {
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
 }
@@ -34,8 +51,7 @@ export function decodeUsersCursor(
     typeof parsed.value === 'string' &&
     typeof parsed.id === 'string' &&
     isUUID(parsed.id) &&
-    (sort !== UserSortField.CreatedAt ||
-      !Number.isNaN(Date.parse(parsed.value)));
+    (sort !== UserSortField.CreatedAt || isIsoTimestamp(parsed.value));
 
   if (!isValid) {
     throw new BadRequestException('Invalid cursor');
