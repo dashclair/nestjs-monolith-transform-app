@@ -169,7 +169,7 @@ export class AuthController {
   @Post('register/resend')
   @HttpCode(HttpStatus.OK)
   async resend(@Body() dto: ResendConfirmationDto) {
-    return this.authService.resend(dto.email);
+    return this.authService.resendRegisterConfirmation(dto.email);
   }
 
   @Post('logout')

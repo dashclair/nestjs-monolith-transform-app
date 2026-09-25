@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 
 import {
   ConflictException,
-  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
@@ -27,6 +26,7 @@ import { FastifyReply } from 'fastify';
 import { RefreshSessionService } from './refresh-session.service';
 import type { SessionMeta } from './refresh-session.service';
 import { isUniqueViolation } from '@/common/database/is-unique-violation';
+import { AuthSettingsService } from '@/modules/settings/auth-settings.service';
 
 @Injectable()
 export class AuthService {
@@ -44,6 +44,7 @@ export class AuthService {
     private readonly configService: ConfigService,
     private readonly tokenService: TokenService,
     private readonly refreshSessionService: RefreshSessionService,
+    private readonly authSettings: AuthSettingsService,
   ) {}
 
   private async findUserForConfirmation(email: string): Promise<User> {
@@ -81,17 +82,15 @@ export class AuthService {
       throw new ConflictException('Email already registered');
     }
 
-    const requireConfirmation =
-      String(
-        this.configService.get('AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION'),
-      ) === 'true';
+    const settings = await this.authSettings.getEffectiveSettings();
+    const requireConfirmation = settings.registrationConfirmationRequired;
     const passwordHash = await this.passwordService.hash(password);
     let user: User;
     try {
       user = await this.usersService.create({
         email,
         passwordHash,
-        isEmailVerified: !requireConfirmation,
+        isEmailVerified: false,
       });
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -107,13 +106,19 @@ export class AuthService {
         email,
         requiresConfirmation: false,
       });
-      return { id: user.id, email: user.email, createdAt: user.createdAt };
+      return {
+        id: user.id,
+        email: user.email,
+        createdAt: user.createdAt,
+        isEmailVerified: false,
+      };
     }
 
     const { method } = await this.emailVerificationService.issueAndSend(
       user.id,
       EmailVerificationPurpose.REGISTER,
       email,
+      settings.registrationConfirmationMethod,
     );
 
     this.logger.log({
@@ -133,6 +138,7 @@ export class AuthService {
     | TokenPair
     | {
         requiresConfirmation: true;
+        purpose: EmailVerificationPurpose;
         method: EmailVerificationMethod;
         email: string;
       }
@@ -196,19 +202,28 @@ export class AuthService {
     user.lockedUntil = null;
     await this.usersService.save(user);
 
-    if (!user.isEmailVerified) {
-      this.logger.warn({
-        event: 'auth.login.failed',
+    const settings = await this.authSettings.getEffectiveSettings();
+    if (settings.registrationConfirmationRequired && !user.isEmailVerified) {
+      const { method } = await this.emailVerificationService.issueAndSend(
+        user.id,
+        EmailVerificationPurpose.REGISTER,
+        user.email,
+        settings.registrationConfirmationMethod,
+      );
+      this.logger.log({
+        event: 'auth.login.email_confirmation_required',
         userId: user.id,
-        reason: 'email_not_verified',
+        method,
       });
-      throw new ForbiddenException('Email not verified');
+      return {
+        requiresConfirmation: true,
+        purpose: EmailVerificationPurpose.REGISTER,
+        method,
+        email: user.email,
+      };
     }
 
-    const requireLoginConfirmation =
-      String(
-        this.configService.get('AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION'),
-      ) === 'true';
+    const requireLoginConfirmation = settings.loginConfirmationRequired;
 
     if (!requireLoginConfirmation) {
       const tokens = await this.startSession(user, meta);
@@ -220,13 +235,19 @@ export class AuthService {
       user.id,
       EmailVerificationPurpose.LOGIN,
       user.email,
+      settings.loginConfirmationMethod,
     );
     this.logger.log({
       event: 'auth.login.success',
       userId: user.id,
       requiresConfirmation: true,
     });
-    return { requiresConfirmation: true, method, email: user.email };
+    return {
+      requiresConfirmation: true,
+      purpose: EmailVerificationPurpose.LOGIN,
+      method,
+      email: user.email,
+    };
   }
 
   @Transactional()
@@ -288,10 +309,13 @@ export class AuthService {
       );
     }
 
+    const settings = await this.authSettings.getEffectiveSettings();
+
     await this.emailVerificationService.issueAndSend(
       user.id,
       EmailVerificationPurpose.LOGIN,
       email,
+      settings.loginConfirmationMethod,
     );
 
     this.logger.log({ event: 'auth.login.confirmation_sent', email });
@@ -357,7 +381,7 @@ export class AuthService {
   }
 
   @Transactional()
-  async resend(email: string) {
+  async resendRegisterConfirmation(email: string) {
     const user = await this.findUserForConfirmation(email);
 
     const canResend = await this.emailVerificationService.canResend(
@@ -371,10 +395,13 @@ export class AuthService {
       );
     }
 
+    const settings = await this.authSettings.getEffectiveSettings();
+
     await this.emailVerificationService.issueAndSend(
       user.id,
       EmailVerificationPurpose.REGISTER,
       email,
+      settings.registrationConfirmationMethod,
     );
 
     this.logger.log({ event: 'auth.email_verification.resend', email });
@@ -384,8 +411,6 @@ export class AuthService {
   async logout(response: FastifyReply, refreshToken?: string): Promise<void> {
     clearAuthCookies(response);
 
-    // Logout must succeed even with a missing/expired/forged token — there's
-    // just nothing to revoke then.
     const payload = refreshToken
       ? await this.tokenService
           .verifyRefreshToken(refreshToken)

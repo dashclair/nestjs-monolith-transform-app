@@ -6,6 +6,7 @@ import { ConfigService } from '@/core/config/config.service';
 
 import { AuthController } from '../auth.controller';
 import { EmailVerificationMethod } from '../../../core/email-verification/email-verification-method.enum';
+import { EmailVerificationPurpose } from '../../../core/email-verification/email-verification-purpose.enum';
 import { AuthService } from '../services/auth.service';
 
 describe('AuthController', () => {
@@ -14,7 +15,8 @@ describe('AuthController', () => {
     register: vi.fn<AuthService['register']>(),
     confirmOtp: vi.fn<AuthService['confirmOtp']>(),
     confirmMagicLink: vi.fn<AuthService['confirmMagicLink']>(),
-    resend: vi.fn<AuthService['resend']>(),
+    resendRegisterConfirmation:
+      vi.fn<AuthService['resendRegisterConfirmation']>(),
     login: vi.fn<AuthService['login']>(),
     confirmLoginOtp: vi.fn<AuthService['confirmLoginOtp']>(),
     confirmLoginMagicLink: vi.fn<AuthService['confirmLoginMagicLink']>(),
@@ -99,6 +101,7 @@ describe('AuthController', () => {
     it('does not set cookies and passes through the confirmation payload when login requires confirmation', async () => {
       const serviceResult = {
         requiresConfirmation: true as const,
+        purpose: EmailVerificationPurpose.LOGIN,
         method: EmailVerificationMethod.OTP,
         email: 'user@example.com',
       };
@@ -251,6 +254,7 @@ describe('AuthController', () => {
         id: 'user-id',
         email: 'user@example.com',
         createdAt: new Date('2026-09-09T10:00:00.000Z'),
+        isEmailVerified: false,
       };
       const status = vi.fn();
       const response = buildResponse(status);
@@ -340,11 +344,15 @@ describe('AuthController', () => {
   describe('resend', () => {
     it('should resend via AuthService and return its result', async () => {
       const serviceResult = { sent: true as const };
-      authServiceMock.resend.mockResolvedValue(serviceResult);
+      authServiceMock.resendRegisterConfirmation.mockResolvedValue(
+        serviceResult,
+      );
 
       const result = await controller.resend({ email: 'user@example.com' });
 
-      expect(authServiceMock.resend).toHaveBeenCalledWith('user@example.com');
+      expect(authServiceMock.resendRegisterConfirmation).toHaveBeenCalledWith(
+        'user@example.com',
+      );
       expect(result).toBe(serviceResult);
     });
   });

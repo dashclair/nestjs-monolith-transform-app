@@ -62,8 +62,13 @@ export class EmailVerificationService {
     userId: string,
     purpose: EmailVerificationPurpose,
     targetEmail: string,
+    selectedMethod?: EmailVerificationMethod,
   ): Promise<{ method: EmailVerificationMethod }> {
-    const { method, plaintext } = await this.issue(userId, purpose);
+    const { method, plaintext } = await this.issue(
+      userId,
+      purpose,
+      selectedMethod,
+    );
 
     const sent = await this.mailerService.sendMail({
       to: targetEmail,
@@ -83,10 +88,13 @@ export class EmailVerificationService {
   async issue(
     userId: string,
     purpose: EmailVerificationPurpose,
+    selectedMethod?: EmailVerificationMethod,
   ): Promise<{ method: EmailVerificationMethod; plaintext: string }> {
-    const method = this.configService.get(
-      CONFIRMATION_METHOD_CONFIG_KEY[purpose],
-    ) as EmailVerificationMethod;
+    const method =
+      selectedMethod ??
+      (this.configService.get(
+        CONFIRMATION_METHOD_CONFIG_KEY[purpose],
+      ) as EmailVerificationMethod);
 
     const plaintext =
       method === EmailVerificationMethod.OTP

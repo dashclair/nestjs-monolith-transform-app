@@ -1,12 +1,14 @@
 import {
   ConflictException,
-  ForbiddenException,
   HttpException,
   Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { AuthSettingsService } from '@/modules/settings/auth-settings.service';
+import { Setting } from '@/modules/settings/entities/setting.entity';
 import type { FastifyReply } from 'fastify';
 
 import { TokenService } from '@/core/auth/services/token.service';
@@ -37,6 +39,7 @@ vi.mock('typeorm-transactional', () => ({
 
 describe('AuthService', () => {
   let service: AuthService;
+  const settingsRepo = { find: vi.fn<() => Promise<Setting[]>>() };
 
   const usersServiceMock = {
     findByEmail: vi.fn<UsersService['findByEmail']>(),
@@ -56,6 +59,12 @@ describe('AuthService', () => {
   };
   const configServiceMock = {
     get: vi.fn<ConfigService['get']>(),
+  };
+  const authConfigDefaults: Record<string, string> = {
+    AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION: 'false',
+    AUTH_LOGIN_REQUIRE_EMAIL_CONFIRMATION: 'false',
+    AUTH_REGISTER_CONFIRMATION_METHOD: 'otp',
+    AUTH_LOGIN_CONFIRMATION_METHOD: 'otp',
   };
   const tokenServiceMock = {
     issueTokens: vi.fn<TokenService['issueTokens']>(),
@@ -84,10 +93,13 @@ describe('AuthService', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    settingsRepo.find.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
+        AuthSettingsService,
+        { provide: getRepositoryToken(Setting), useValue: settingsRepo },
         { provide: UsersService, useValue: usersServiceMock },
         { provide: PasswordService, useValue: passwordServiceMock },
         {
@@ -107,6 +119,41 @@ describe('AuthService', () => {
   });
 
   describe('register', () => {
+    it('uses stored registration policy and passes its method from the same snapshot', async () => {
+      configServiceMock.get.mockImplementation((key) =>
+        key === 'AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION'
+          ? 'false'
+          : authConfigDefaults[key],
+      );
+      settingsRepo.find.mockResolvedValue([
+        { key: 'registrationConfirmationRequired', value: true },
+        { key: 'registrationConfirmationMethod', value: 'magic_link' },
+      ] as Setting[]);
+      usersServiceMock.findByEmail.mockResolvedValue(null);
+      passwordServiceMock.hash.mockResolvedValue('hash');
+      usersServiceMock.create.mockResolvedValue(buildUser());
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
+        method: EmailVerificationMethod.MAGIC_LINK,
+      });
+
+      const result = await service.register('user@example.com', 'password');
+
+      expect(result).toMatchObject({
+        requiresConfirmation: true,
+        method: EmailVerificationMethod.MAGIC_LINK,
+      });
+      expect(usersServiceMock.create).toHaveBeenCalledWith(
+        expect.objectContaining({ isEmailVerified: false }),
+      );
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
+        'user-id',
+        EmailVerificationPurpose.REGISTER,
+        'user@example.com',
+        EmailVerificationMethod.MAGIC_LINK,
+      );
+      expect(settingsRepo.find).toHaveBeenCalledTimes(1);
+    });
+
     it('should throw ConflictException when the email is already registered', async () => {
       usersServiceMock.findByEmail.mockResolvedValue(buildUser());
 
@@ -122,7 +169,11 @@ describe('AuthService', () => {
     // surface as a 500 instead of 409.
     it('should throw ConflictException when a concurrent registration wins the race to the unique index', async () => {
       usersServiceMock.findByEmail.mockResolvedValue(null);
-      configServiceMock.get.mockReturnValue('false');
+      configServiceMock.get.mockImplementation((key) =>
+        key === 'AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION'
+          ? 'false'
+          : authConfigDefaults[key],
+      );
       passwordServiceMock.hash.mockResolvedValue('hashed-password');
       usersServiceMock.create.mockRejectedValue(
         Object.assign(new Error('duplicate key value'), {
@@ -138,7 +189,11 @@ describe('AuthService', () => {
 
     it('should rethrow other database errors from create as-is', async () => {
       usersServiceMock.findByEmail.mockResolvedValue(null);
-      configServiceMock.get.mockReturnValue('false');
+      configServiceMock.get.mockImplementation((key) =>
+        key === 'AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION'
+          ? 'false'
+          : authConfigDefaults[key],
+      );
       passwordServiceMock.hash.mockResolvedValue('hashed-password');
       const dbError = Object.assign(new Error('connection lost'), {
         driverError: { code: '08006' },
@@ -150,13 +205,17 @@ describe('AuthService', () => {
       ).rejects.toBe(dbError);
     });
 
-    it('should create a verified user and not send an email when confirmation is disabled', async () => {
+    // The flag records an actual confirmation, so an admin enabling
+    // confirmation later can still tell these users apart.
+    it('should create an unverified user and not send an email when confirmation is disabled', async () => {
       usersServiceMock.findByEmail.mockResolvedValue(null);
       configServiceMock.get.mockImplementation((key: string) =>
-        key === 'AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION' ? 'false' : '',
+        key === 'AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION'
+          ? 'false'
+          : authConfigDefaults[key],
       );
       passwordServiceMock.hash.mockResolvedValue('hashed-password');
-      const createdUser = buildUser({ isEmailVerified: true });
+      const createdUser = buildUser({ isEmailVerified: false });
       usersServiceMock.create.mockResolvedValue(createdUser);
 
       const result = await service.register('user@example.com', 'password123');
@@ -164,20 +223,23 @@ describe('AuthService', () => {
       expect(usersServiceMock.create).toHaveBeenCalledWith({
         email: 'user@example.com',
         passwordHash: 'hashed-password',
-        isEmailVerified: true,
+        isEmailVerified: false,
       });
       expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
       expect(result).toEqual({
         id: createdUser.id,
         email: createdUser.email,
         createdAt: createdUser.createdAt,
+        isEmailVerified: false,
       });
     });
 
     it('should create an unverified user, issue a code and send an email when confirmation is enabled', async () => {
       usersServiceMock.findByEmail.mockResolvedValue(null);
       configServiceMock.get.mockImplementation((key: string) =>
-        key === 'AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION' ? 'true' : '',
+        key === 'AUTH_REGISTER_REQUIRE_EMAIL_CONFIRMATION'
+          ? 'true'
+          : authConfigDefaults[key],
       );
       passwordServiceMock.hash.mockResolvedValue('hashed-password');
       const createdUser = buildUser({ isEmailVerified: false });
@@ -197,6 +259,7 @@ describe('AuthService', () => {
         createdUser.id,
         EmailVerificationPurpose.REGISTER,
         'user@example.com',
+        EmailVerificationMethod.OTP,
       );
       expect(result).toEqual({
         requiresConfirmation: true,
@@ -257,13 +320,13 @@ describe('AuthService', () => {
     });
   });
 
-  describe('resend', () => {
+  describe('resendRegisterConfirmation', () => {
     it('should throw NotFoundException when no user matches the email', async () => {
       usersServiceMock.findByEmail.mockResolvedValue(null);
 
-      await expect(service.resend('user@example.com')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.resendRegisterConfirmation('user@example.com'),
+      ).rejects.toThrow(NotFoundException);
 
       expect(emailVerificationServiceMock.canResend).not.toHaveBeenCalled();
     });
@@ -276,9 +339,9 @@ describe('AuthService', () => {
       usersServiceMock.findByEmail.mockResolvedValue(user);
       emailVerificationServiceMock.canResend.mockResolvedValue(false);
 
-      await expect(service.resend('user@example.com')).rejects.toThrow(
-        HttpException,
-      );
+      await expect(
+        service.resendRegisterConfirmation('user@example.com'),
+      ).rejects.toThrow(HttpException);
 
       expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
     });
@@ -291,18 +354,72 @@ describe('AuthService', () => {
         method: EmailVerificationMethod.OTP,
       });
 
-      const result = await service.resend('user@example.com');
+      const result =
+        await service.resendRegisterConfirmation('user@example.com');
 
       expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
         user.id,
         EmailVerificationPurpose.REGISTER,
         'user@example.com',
+        EmailVerificationMethod.OTP,
       );
       expect(result).toEqual({ sent: true });
+    });
+
+    it('resends with the method currently stored in settings', async () => {
+      settingsRepo.find.mockResolvedValue([
+        { key: 'registrationConfirmationMethod', value: 'magic_link' },
+      ] as Setting[]);
+      const user = buildUser();
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      emailVerificationServiceMock.canResend.mockResolvedValue(true);
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
+        method: EmailVerificationMethod.MAGIC_LINK,
+      });
+
+      await service.resendRegisterConfirmation('user@example.com');
+
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
+        user.id,
+        EmailVerificationPurpose.REGISTER,
+        'user@example.com',
+        EmailVerificationMethod.MAGIC_LINK,
+      );
     });
   });
 
   describe('login', () => {
+    it('uses stored login policy instead of the disabled env flag', async () => {
+      settingsRepo.find.mockResolvedValue([
+        { key: 'loginConfirmationRequired', value: true },
+        { key: 'loginConfirmationMethod', value: 'magic_link' },
+      ] as Setting[]);
+      const user = buildUser({ isEmailVerified: true });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      passwordServiceMock.verify.mockResolvedValue(true);
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
+        method: EmailVerificationMethod.MAGIC_LINK,
+      });
+
+      const result = await service.login({
+        email: user.email,
+        password: 'password',
+      });
+
+      expect(result).toMatchObject({
+        requiresConfirmation: true,
+        method: EmailVerificationMethod.MAGIC_LINK,
+      });
+      expect(tokenServiceMock.issueTokens).not.toHaveBeenCalled();
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
+        user.id,
+        EmailVerificationPurpose.LOGIN,
+        user.email,
+        EmailVerificationMethod.MAGIC_LINK,
+      );
+      expect(settingsRepo.find).toHaveBeenCalledTimes(1);
+    });
+
     const loginDto = { email: 'user@example.com', password: 'password123' };
 
     beforeEach(() => {
@@ -392,20 +509,83 @@ describe('AuthService', () => {
       );
     });
 
-    it('should throw 403 when the email is not verified, even with a correct password', async () => {
+    it('should let an unverified user log in while registration confirmation is disabled', async () => {
       const user = buildUser({ isEmailVerified: false });
       usersServiceMock.findByEmail.mockResolvedValue(user);
       passwordServiceMock.verify.mockResolvedValue(true);
+      const tokens = {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      };
+      tokenServiceMock.issueTokens.mockResolvedValue(tokens);
 
-      await expect(service.login(loginDto)).rejects.toThrow(ForbiddenException);
+      const result = await service.login(loginDto);
+
+      expect(result).toEqual(tokens);
+      expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
+    });
+
+    it('should issue a registration code instead of tokens for an unverified user once confirmation is enabled', async () => {
+      settingsRepo.find.mockResolvedValue([
+        { key: 'registrationConfirmationRequired', value: true },
+        { key: 'registrationConfirmationMethod', value: 'magic_link' },
+        // Login confirmation must not stack a second code on top.
+        { key: 'loginConfirmationRequired', value: true },
+      ] as Setting[]);
+      const user = buildUser({ isEmailVerified: false });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      passwordServiceMock.verify.mockResolvedValue(true);
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
+        method: EmailVerificationMethod.MAGIC_LINK,
+      });
+
+      const result = await service.login(loginDto);
+
+      expect(result).toEqual({
+        requiresConfirmation: true,
+        purpose: EmailVerificationPurpose.REGISTER,
+        method: EmailVerificationMethod.MAGIC_LINK,
+        email: user.email,
+      });
       expect(tokenServiceMock.issueTokens).not.toHaveBeenCalled();
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledTimes(
+        1,
+      );
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
+        user.id,
+        EmailVerificationPurpose.REGISTER,
+        user.email,
+        EmailVerificationMethod.MAGIC_LINK,
+      );
+    });
+
+    it('should not ask a verified user for a registration code when confirmation is enabled', async () => {
+      settingsRepo.find.mockResolvedValue([
+        { key: 'registrationConfirmationRequired', value: true },
+      ] as Setting[]);
+      const user = buildUser({ isEmailVerified: true });
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      passwordServiceMock.verify.mockResolvedValue(true);
+      const tokens = {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+      };
+      tokenServiceMock.issueTokens.mockResolvedValue(tokens);
+
+      const result = await service.login(loginDto);
+
+      expect(result).toEqual(tokens);
+      expect(emailVerificationServiceMock.issueAndSend).not.toHaveBeenCalled();
     });
 
     // Regression: the counter reset used to be set in memory but only ever
     // persisted in the branches *after* the isEmailVerified check, so a
-    // correct password on an unverified account threw 403 without ever
+    // correct password on an unverified account returned early without ever
     // saving failedLoginAttempts=0/lockedUntil=null.
     it('should persist the failed-attempt reset even when the email is not verified', async () => {
+      settingsRepo.find.mockResolvedValue([
+        { key: 'registrationConfirmationRequired', value: true },
+      ] as Setting[]);
       const user = buildUser({
         isEmailVerified: false,
         failedLoginAttempts: 3,
@@ -413,8 +593,13 @@ describe('AuthService', () => {
       });
       usersServiceMock.findByEmail.mockResolvedValue(user);
       passwordServiceMock.verify.mockResolvedValue(true);
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
+        method: EmailVerificationMethod.OTP,
+      });
 
-      await expect(service.login(loginDto)).rejects.toThrow(ForbiddenException);
+      await expect(service.login(loginDto)).resolves.toMatchObject({
+        requiresConfirmation: true,
+      });
 
       expect(usersServiceMock.save).toHaveBeenCalledWith(
         expect.objectContaining({ failedLoginAttempts: 0, lockedUntil: null }),
@@ -501,9 +686,11 @@ describe('AuthService', () => {
         user.id,
         EmailVerificationPurpose.LOGIN,
         user.email,
+        EmailVerificationMethod.OTP,
       );
       expect(result).toEqual({
         requiresConfirmation: true,
+        purpose: EmailVerificationPurpose.LOGIN,
         method: EmailVerificationMethod.OTP,
         email: user.email,
       });
@@ -577,8 +764,30 @@ describe('AuthService', () => {
         user.id,
         EmailVerificationPurpose.LOGIN,
         'user@example.com',
+        EmailVerificationMethod.OTP,
       );
       expect(result).toEqual({ sent: true });
+    });
+
+    it('resends with the method currently stored in settings', async () => {
+      settingsRepo.find.mockResolvedValue([
+        { key: 'loginConfirmationMethod', value: 'magic_link' },
+      ] as Setting[]);
+      const user = buildUser();
+      usersServiceMock.findByEmail.mockResolvedValue(user);
+      emailVerificationServiceMock.canResend.mockResolvedValue(true);
+      emailVerificationServiceMock.issueAndSend.mockResolvedValue({
+        method: EmailVerificationMethod.MAGIC_LINK,
+      });
+
+      await service.resendLoginConfirmation('user@example.com');
+
+      expect(emailVerificationServiceMock.issueAndSend).toHaveBeenCalledWith(
+        user.id,
+        EmailVerificationPurpose.LOGIN,
+        'user@example.com',
+        EmailVerificationMethod.MAGIC_LINK,
+      );
     });
   });
 
