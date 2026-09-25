@@ -411,6 +411,8 @@ export class AuthService {
   async logout(response: FastifyReply, refreshToken?: string): Promise<void> {
     clearAuthCookies(response);
 
+    // Logout must succeed even with a missing/expired/forged token — there's
+    // just nothing to revoke then.
     const payload = refreshToken
       ? await this.tokenService
           .verifyRefreshToken(refreshToken)
