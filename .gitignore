@@ -4,6 +4,7 @@
 /build
 /docs
 *.tsbuildinfo
+/storage/
 
 # Logs
 logs

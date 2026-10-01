@@ -105,4 +105,7 @@ export interface Config {
   STORAGE_S3_BUCKET?: string;
   STORAGE_S3_REGION?: string;
   STORAGE_S3_ENDPOINT?: string;
+  STORAGE_S3_ACCESS_KEY_ID?: string;
+  STORAGE_S3_SECRET_ACCESS_KEY?: string;
+  STORAGE_S3_FORCE_PATH_STYLE?: boolean; // default false
 }

@@ -128,5 +128,12 @@ export const configValidationSchema = Joi.object<Config>({
     is: 's3',
     then: Joi.required(),
   }),
-  STORAGE_S3_ENDPOINT: Joi.string().optional(),
-});
+  STORAGE_S3_ENDPOINT: Joi.string()
+    .uri({ scheme: ['http', 'https'] })
+    .empty('')
+    .optional(),
+  // Both or neither: unset on AWS so the SDK falls back to the IAM role
+  STORAGE_S3_ACCESS_KEY_ID: Joi.string().empty('').optional(),
+  STORAGE_S3_SECRET_ACCESS_KEY: Joi.string().empty('').optional(),
+  STORAGE_S3_FORCE_PATH_STYLE: Joi.boolean().optional().default(false), // true для RustFS / S3-совместимых
+}).and('STORAGE_S3_ACCESS_KEY_ID', 'STORAGE_S3_SECRET_ACCESS_KEY');

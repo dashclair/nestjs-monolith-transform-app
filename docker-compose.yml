@@ -23,6 +23,56 @@ services:
     ports:
       - "${MAIL_PORT}:1025"
       - "8025:8025"
+  # RustFS runs as UID 10001 — make the named volume writable for it first
+  rustfs-perms:
+    image: alpine:3
+    volumes:
+      - rustfs_data:/data
+    command: chown -R 10001:10001 /data
+  rustfs:
+    image: rustfs/rustfs:1.0.0
+    container_name: mnt-rustfs
+    depends_on:
+      rustfs-perms:
+        condition: service_completed_successfully
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: ${STORAGE_S3_ACCESS_KEY_ID:-rustfsadmin}
+      RUSTFS_SECRET_KEY: ${STORAGE_S3_SECRET_ACCESS_KEY:-rustfsadmin}
+      RUSTFS_OBS_LOG_DIRECTORY: "" # empty = logs to stdout (docker logs)
+    ports:
+      - "9000:9000" # S3 API
+      - "9001:9001" # web console
+    volumes:
+      - rustfs_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+  # One-shot: creates the bucket if it doesn't exist yet, then exits
+  rustfs-init:
+    image: amazon/aws-cli:2.37.5
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${STORAGE_S3_ACCESS_KEY_ID:-rustfsadmin}
+      AWS_SECRET_ACCESS_KEY: ${STORAGE_S3_SECRET_ACCESS_KEY:-rustfsadmin}
+      AWS_DEFAULT_REGION: ${STORAGE_S3_REGION:-us-east-1}
+      AWS_ENDPOINT_URL: http://rustfs:9000
+      BUCKET: ${STORAGE_S3_BUCKET:-prism-files}
+    entrypoint: >
+      /bin/sh -c "aws configure set default.s3.addressing_style path
+      && (aws s3api head-bucket --bucket $${BUCKET} 2>/dev/null || aws s3 mb s3://$${BUCKET})"
 volumes:
   postgres_data:
+    driver: local
+  rustfs_data:
     driver: local
