@@ -108,4 +108,12 @@ export interface Config {
   STORAGE_S3_ACCESS_KEY_ID?: string;
   STORAGE_S3_SECRET_ACCESS_KEY?: string;
   STORAGE_S3_FORCE_PATH_STYLE?: boolean; // default false
+
+  TRANSFORM_TIMEOUT_MS?: number; // default 30000, milliseconds
+  THROTTLE_TRANSFORM_LIMIT?: number; // default 10
+  THROTTLE_TRANSFORM_TTL?: number; // default 60, seconds
+  TRANSFORM_MAX_SIZE_CSV?: number; // bytes, default 10 MiB
+  TRANSFORM_MAX_SIZE_JSON?: number; // bytes, default 10 MiB
+  TRANSFORM_MAX_SIZE_XML?: number; // bytes, default 10 MiB
+  TRANSFORM_MAX_SIZE_YAML?: number; // bytes, default 5 MiB
 }

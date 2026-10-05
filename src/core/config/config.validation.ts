@@ -136,4 +136,35 @@ export const configValidationSchema = Joi.object<Config>({
   STORAGE_S3_ACCESS_KEY_ID: Joi.string().empty('').optional(),
   STORAGE_S3_SECRET_ACCESS_KEY: Joi.string().empty('').optional(),
   STORAGE_S3_FORCE_PATH_STYLE: Joi.boolean().optional().default(false), // true для RustFS / S3-совместимых
+
+  /**
+   * Transformation limits: sizes in bytes, timeout in milliseconds, TTL in seconds.
+   */
+  TRANSFORM_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(1)
+    .max(2_147_483_647)
+    .default(30_000),
+  THROTTLE_TRANSFORM_LIMIT: Joi.number().integer().min(1).default(10),
+  THROTTLE_TRANSFORM_TTL: Joi.number().integer().min(1).default(60),
+  TRANSFORM_MAX_SIZE_CSV: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER - 1)
+    .default(10 * 1024 * 1024),
+  TRANSFORM_MAX_SIZE_JSON: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER - 1)
+    .default(10 * 1024 * 1024),
+  TRANSFORM_MAX_SIZE_XML: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER - 1)
+    .default(10 * 1024 * 1024),
+  TRANSFORM_MAX_SIZE_YAML: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER - 1)
+    .default(5 * 1024 * 1024),
 }).and('STORAGE_S3_ACCESS_KEY_ID', 'STORAGE_S3_SECRET_ACCESS_KEY');

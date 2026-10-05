@@ -15,6 +15,7 @@ import { RbacModule } from '@/modules/rbac/rbac.module';
 import { UsersModule } from '@/modules/users/users.module';
 import { SettingsModule } from '@/modules/settings/settings.module';
 import { StorageModule } from '@/core/storage/storage.module';
+import { TransformationsModule } from '@/modules/transformations/transformations.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { StorageModule } from '@/core/storage/storage.module';
     RbacModule,
     SettingsModule,
     StorageModule,
+    TransformationsModule,
   ],
   controllers: [TestErrorsController],
   providers: [

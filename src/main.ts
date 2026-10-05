@@ -14,6 +14,8 @@ import {
 import { AppModule } from './core/app/app.module';
 import { ConfigService } from '@/core/config/config.service';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import fastifyMultipart from '@fastify/multipart';
+import { getMultipartOptions } from '@/core/app/multipart-options';
 
 async function bootstrap() {
   initializeTransactionalContext({ storageDriver: StorageDriver.AUTO });
@@ -41,6 +43,7 @@ async function bootstrap() {
     ],
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
+    exposedHeaders: ['X-Transformation-Id'],
     preflightContinue: false,
     optionsSuccessStatus: 204,
   });
@@ -54,6 +57,8 @@ async function bootstrap() {
   await app.register(fastifyCookie, {
     secret: configService.get('COOKIE_SECRET'),
   });
+
+  await app.register(fastifyMultipart, getMultipartOptions(configService));
 
   const port = configService.get('PORT');
 
