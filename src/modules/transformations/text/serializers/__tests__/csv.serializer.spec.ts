@@ -43,6 +43,24 @@ describe('CsvSerializer', () => {
     ).toBe('a,b,c\n1,,\n2,,3\n');
   });
 
+  it('drops a null placeholder column that has nested columns', () => {
+    expect(
+      serializer.serialize([
+        { id: 1, address: { city: 'Minsk' } },
+        { id: 2, address: null },
+      ]),
+    ).toBe('id,address.city\n1,Minsk\n2,\n');
+  });
+
+  it('keeps a column that holds a value next to its nested columns', () => {
+    expect(
+      serializer.serialize([
+        { address: { city: 'Minsk' } },
+        { address: 'unknown' },
+      ]),
+    ).toBe('address.city,address\nMinsk,\n,unknown\n');
+  });
+
   it('quotes values with commas, quotes and line breaks', () => {
     expect(serializer.serialize([{ a: 'x, "y"\nz' }])).toBe(
       'a\n"x, ""y""\nz"\n',

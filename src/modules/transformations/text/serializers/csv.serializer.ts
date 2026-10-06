@@ -66,7 +66,16 @@ export class CsvSerializer extends FormatSerializer {
 
   serialize(value: JsonValue): string {
     const rows = toRows(value).map((row) => flatten(row, '', {}));
-    const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+    const allColumns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+
+    // `{"address":null}` next to `{"address":{"city":…}}` would add an
+    // always-empty `address` column beside `address.city` — drop it. A column
+    // holding a real value in any row is kept.
+    const columns = allColumns.filter(
+      (column) =>
+        !allColumns.some((other) => other.startsWith(`${column}.`)) ||
+        rows.some((row) => row[column] !== null && row[column] !== undefined),
+    );
 
     if (columns.length === 0) return '';
 

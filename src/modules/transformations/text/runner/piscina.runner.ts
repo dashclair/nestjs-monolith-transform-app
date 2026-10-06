@@ -9,6 +9,15 @@ import {
   TextConversionTask,
 } from '../worker/convert-text';
 
+const QUEUE_AT_LIMIT = /Task queue is at limit/;
+
+const busy = () =>
+  new TransformationError(
+    'BUSY',
+    HttpStatus.SERVICE_UNAVAILABLE,
+    'Server is busy',
+  );
+
 @Injectable()
 export class PiscinaRunner
   extends TextConversionRunner
@@ -33,13 +42,18 @@ export class PiscinaRunner
     signal: AbortSignal,
   ): Promise<TextConversionOutcome> {
     if (this.pool.queueSize >= this.maxQueue) {
-      throw new TransformationError(
-        'BUSY',
-        HttpStatus.SERVICE_UNAVAILABLE,
-        'Server is busy',
-      );
+      throw busy();
     }
-    return this.pool.run(task, { signal });
+
+    try {
+      return await this.pool.run(task, { signal });
+    } catch (error) {
+      // piscina enforces maxQueue itself too, with a plain Error.
+      if (error instanceof Error && QUEUE_AT_LIMIT.test(error.message)) {
+        throw busy();
+      }
+      throw error;
+    }
   }
 
   async onModuleDestroy() {

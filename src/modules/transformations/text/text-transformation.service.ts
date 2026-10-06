@@ -194,11 +194,15 @@ export class TextTransformationService extends ConversionEngine {
     );
 
     if (!outcome.ok) {
-      throw new TransformationError(
-        outcome.code,
-        HttpStatus.BAD_REQUEST,
-        outcome.message,
-      );
+      // The HTTP status does not cross the thread boundary, only the code.
+      // Everything the worker reports is a problem with the file, except
+      // its catch-all for unexpected errors.
+      const status =
+        outcome.code === 'INTERNAL_ERROR'
+          ? HttpStatus.INTERNAL_SERVER_ERROR
+          : HttpStatus.BAD_REQUEST;
+
+      throw new TransformationError(outcome.code, status, outcome.message);
     }
 
     // convert() is only reached for pairs from supportedPairs(), so the
