@@ -22,6 +22,9 @@ const keys = [
   'TRANSFORM_MAX_SIZE_JSON',
   'TRANSFORM_MAX_SIZE_XML',
   'TRANSFORM_MAX_SIZE_YAML',
+  'TRANSFORM_TEXT_WORKERS',
+  'TRANSFORM_TEXT_MAX_DEPTH',
+  'TRANSFORM_TEXT_MAX_NODES',
 ] as const;
 
 describe('Transformation configuration', () => {
@@ -37,6 +40,9 @@ describe('Transformation configuration', () => {
       TRANSFORM_MAX_SIZE_JSON: 10 * 1024 * 1024,
       TRANSFORM_MAX_SIZE_XML: 10 * 1024 * 1024,
       TRANSFORM_MAX_SIZE_YAML: 5 * 1024 * 1024,
+      TRANSFORM_TEXT_WORKERS: 2,
+      TRANSFORM_TEXT_MAX_DEPTH: 64,
+      TRANSFORM_TEXT_MAX_NODES: 1_000_000,
     });
   });
 

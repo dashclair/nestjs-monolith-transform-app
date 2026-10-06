@@ -167,4 +167,11 @@ export const configValidationSchema = Joi.object<Config>({
     .min(1)
     .max(Number.MAX_SAFE_INTEGER - 1)
     .default(5 * 1024 * 1024),
+  TRANSFORM_TEXT_WORKERS: Joi.number().integer().min(1).default(2),
+  TRANSFORM_TEXT_MAX_DEPTH: Joi.number().integer().min(1).default(64),
+  TRANSFORM_TEXT_MAX_NODES: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER - 1)
+    .default(1_000_000),
 }).and('STORAGE_S3_ACCESS_KEY_ID', 'STORAGE_S3_SECRET_ACCESS_KEY');

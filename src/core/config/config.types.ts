@@ -116,4 +116,7 @@ export interface Config {
   TRANSFORM_MAX_SIZE_JSON?: number; // bytes, default 10 MiB
   TRANSFORM_MAX_SIZE_XML?: number; // bytes, default 10 MiB
   TRANSFORM_MAX_SIZE_YAML?: number; // bytes, default 5 MiB
+  TRANSFORM_TEXT_WORKERS?: number; // worker threads for text conversion, default 2
+  TRANSFORM_TEXT_MAX_DEPTH?: number; // max nesting depth of parsed data, default 64
+  TRANSFORM_TEXT_MAX_NODES?: number; // max number of nodes in parsed data, default 1000000
 }

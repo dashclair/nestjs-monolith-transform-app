@@ -1,23 +1,24 @@
+import { extname } from 'node:path';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@/core/config/config.service';
 import { ConversionEngine } from '../core/conversion-engine';
 import { TransformationError } from '../core/transformation-error';
 import {
   ConversionOptions,
+  ConversionRequest,
   ConversionResult,
+  DetectInput,
   FormatPair,
   SupportedFormats,
-  TEXT_FORMATS,
   TextFormat,
 } from '../core/types';
+import { TEXT_PARSERS } from './parsers';
+import { TextConversionRunner } from './runner/text-conversion.runner';
+import { TEXT_SERIALIZERS } from './serializers';
+import { decodeHead } from './utils/decode-text';
+import { StructureLimits } from './text.types';
 
-// All 12 directions from the spec: every text format converts to every other one.
-export const TEXT_TARGETS = {
-  csv: ['json', 'xml', 'yaml'],
-  json: ['csv', 'xml', 'yaml'],
-  xml: ['csv', 'json', 'yaml'],
-  yaml: ['csv', 'json', 'xml'],
-} as const satisfies Record<TextFormat, readonly TextFormat[]>;
+type SupportedFormat = 'csv' | 'json' | 'xml' | 'yaml';
 
 const SIZE_LIMIT_KEYS = {
   csv: 'TRANSFORM_MAX_SIZE_CSV',
@@ -30,36 +31,132 @@ const SIZE_LIMIT_KEYS = {
 export class TextTransformationService extends ConversionEngine {
   readonly kind = 'file';
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly runner: TextConversionRunner,
+  ) {
     super();
   }
 
+  // Derived from the registries: every parser × every serializer except the
+  // identity pair, so a new format only needs registering in both.
   supportedPairs(): FormatPair<TextFormat>[] {
-    return TEXT_FORMATS.flatMap((source) =>
-      TEXT_TARGETS[source].map((target: TextFormat) => ({ source, target })),
+    const targets = [...TEXT_SERIALIZERS.keys()];
+
+    return [...TEXT_PARSERS.keys()].flatMap((source) =>
+      targets
+        .filter((target) => target !== source)
+        .map((target) => ({ source, target })),
     );
   }
 
   getFormats(): SupportedFormats<TextFormat>[] {
-    return TEXT_FORMATS.map((source) => ({
-      source,
-      target: [...TEXT_TARGETS[source]],
-    }));
+    const grouped = new Map<TextFormat, TextFormat[]>();
+
+    for (const { source, target } of this.supportedPairs()) {
+      grouped.set(source, [...(grouped.get(source) ?? []), target]);
+    }
+
+    return [...grouped].map(([source, target]) => ({ source, target }));
   }
 
-  // TODO(T-020): sniff BOM/`{`/`[`/`<`, use the extension only to tell yaml from csv.
-  detectFormat(): TextFormat | null {
-    throw new Error(
-      'TextTransformationService.detectFormat is not implemented',
-    );
+  detectByMimeType(mimetype?: string): SupportedFormat | null {
+    if (!mimetype) {
+      return null;
+    }
+
+    const mime = mimetype.split(';')[0].trim().toLowerCase();
+
+    switch (mime) {
+      case 'text/csv':
+        return 'csv';
+
+      case 'application/yaml':
+      case 'text/yaml':
+      case 'application/x-yaml':
+        return 'yaml';
+
+      default:
+        return null;
+    }
+  }
+
+  detectByContent(content: string): SupportedFormat | null {
+    const trimmed = content.trimStart();
+
+    const firstChar = trimmed[0];
+
+    if (firstChar === '{' || firstChar === '[') {
+      return 'json';
+    }
+
+    if (firstChar === '<') {
+      return 'xml';
+    }
+
+    return null;
+  }
+  detectByExtension(filename?: string) {
+    if (!filename) {
+      return null;
+    }
+
+    // extname() returns '' for 'csv' and '.csv' — a bare name is not an
+    // extension (split('.').pop() would return the whole name here).
+    const extension = extname(filename).slice(1).toLowerCase();
+
+    switch (extension) {
+      case 'csv':
+        return 'csv';
+
+      case 'json':
+        return 'json';
+
+      case 'xml':
+        return 'xml';
+
+      case 'yaml':
+      case 'yml':
+        return 'yaml';
+
+      default:
+        return null;
+    }
+  }
+
+  detectFormat(input: DetectInput): TextFormat | null {
+    if (input.head.includes(0x00)) {
+      throw new TransformationError(
+        'UNSUPPORTED_FORMAT',
+        HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+        'Unsupported file format',
+      );
+    }
+
+    const content = decodeHead(input.head);
+
+    const byExtension = this.detectByExtension(input.filename);
+    if (byExtension) {
+      return byExtension;
+    }
+
+    const byContent = this.detectByContent(content);
+    if (byContent) {
+      return byContent;
+    }
+
+    const byMimeType = this.detectByMimeType(input.mimetype);
+    if (byMimeType) {
+      return byMimeType;
+    }
+
+    return null;
   }
 
   sizeLimit(source: TextFormat): number {
-    // ConfigService returns raw strings — coerce explicitly.
     return Number(this.configService.get(SIZE_LIMIT_KEYS[source]));
   }
 
-  // The spec defines no options for text conversion: only `{}` (or no `options` field) is accepted.
   validateOptions(
     _source: TextFormat,
     _target: TextFormat,
@@ -82,8 +179,36 @@ export class TextTransformationService extends ConversionEngine {
     return {};
   }
 
-  // TODO(T-020): parse → intermediate representation → serialize, in a worker, honouring `signal`.
-  convert(): Promise<ConversionResult> {
-    throw new Error('TextTransformationService.convert is not implemented');
+  async convert(
+    req: ConversionRequest<TextFormat>,
+    signal: AbortSignal,
+  ): Promise<ConversionResult> {
+    const limits: StructureLimits = {
+      maxDepth: Number(this.configService.get('TRANSFORM_TEXT_MAX_DEPTH')),
+      maxNodes: Number(this.configService.get('TRANSFORM_TEXT_MAX_NODES')),
+    };
+
+    const outcome = await this.runner.run(
+      { source: req.source, target: req.target, body: req.body, limits },
+      signal,
+    );
+
+    if (!outcome.ok) {
+      throw new TransformationError(
+        outcome.code,
+        HttpStatus.BAD_REQUEST,
+        outcome.message,
+      );
+    }
+
+    // convert() is only reached for pairs from supportedPairs(), so the
+    // target serializer is registered.
+    const serializer = TEXT_SERIALIZERS.get(req.target)!;
+
+    return {
+      body: Buffer.from(outcome.body),
+      mimeType: serializer.mimeType,
+      extension: serializer.extension,
+    };
   }
 }
