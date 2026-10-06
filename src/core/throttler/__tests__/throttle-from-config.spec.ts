@@ -1,4 +1,4 @@
-import { throttleFromConfig } from './throttle-from-config';
+import { throttleFromConfig } from '../throttle-from-config';
 
 describe('throttleFromConfig', () => {
   afterEach(() => {

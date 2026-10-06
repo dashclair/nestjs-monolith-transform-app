@@ -1,6 +1,6 @@
-import { configValidationSchema } from './config.validation';
+import { configValidationSchema } from '../config.validation';
 import { getMultipartOptions } from '@/core/app/multipart-options';
-import type { Config } from './config.types';
+import type { Config } from '../config.types';
 
 const requiredConfig = {
   PORT: 3007,

@@ -9,7 +9,7 @@ import { vi } from 'vitest';
 
 import { ConfigService } from '@/core/config/config.service';
 
-import { HealthService } from './health.service';
+import { HealthService } from '../health.service';
 
 describe('HealthService', () => {
   let service: HealthService;

@@ -3,8 +3,8 @@ import { vi } from 'vitest';
 
 import { ConfigService } from '@/core/config/config.service';
 
-import { HealthController } from './health.controller';
-import { HealthService } from './health.service';
+import { HealthController } from '../health.controller';
+import { HealthService } from '../health.service';
 
 describe('HealthController', () => {
   let controller: HealthController;
