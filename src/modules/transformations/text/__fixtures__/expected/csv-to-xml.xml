@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <item>
+    <id>1</id>
+    <name>Smith, Anna</name>
+    <email>anna@example.com</email>
+    <note>says &quot;hi&quot;</note>
+  </item>
+  <item>
+    <id>2</id>
+    <name>Иван</name>
+    <email>ivan@example.com</email>
+    <note></note>
+  </item>
+  <item>
+    <id>3</id>
+    <name>Bob</name>
+    <email>bob@example.com</email>
+    <note>=SUM(A1)</note>
+  </item>
+</root>

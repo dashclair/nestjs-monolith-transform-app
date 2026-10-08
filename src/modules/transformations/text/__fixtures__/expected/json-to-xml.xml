@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <users>
+    <id>1</id>
+    <name>Anna</name>
+    <active>true</active>
+    <address>
+      <city>Minsk</city>
+      <zip>220000</zip>
+    </address>
+    <tags>admin</tags>
+    <tags>dev</tags>
+  </users>
+  <users>
+    <id>2</id>
+    <name>-Bob &amp; &lt;Co&gt;</name>
+    <active>false</active>
+    <address/>
+  </users>
+</root>

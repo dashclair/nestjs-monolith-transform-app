@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+  <servers>
+    <name>alpha</name>
+    <port>8080</port>
+    <enabled>true</enabled>
+    <started>2024-01-01</started>
+  </servers>
+  <servers>
+    <name>beta</name>
+    <port/>
+    <enabled>no</enabled>
+    <started/>
+  </servers>
+</root>

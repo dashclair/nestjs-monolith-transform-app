@@ -1,0 +1,16 @@
+{
+  "servers": [
+    {
+      "name": "alpha",
+      "port": 8080,
+      "enabled": true,
+      "started": "2024-01-01"
+    },
+    {
+      "name": "beta",
+      "port": null,
+      "enabled": "no",
+      "started": null
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- book catalog -->
+<catalog>
+  <book id="1" lang="en">
+    <title>XML &amp; You</title>
+    <price>10.50</price>
+  </book>
+  <book id="2">
+    <title><![CDATA[<Tags> & more]]></title>
+    <price>007</price>
+  </book>
+</catalog>

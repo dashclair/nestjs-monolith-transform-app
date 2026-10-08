@@ -25,6 +25,12 @@ const keys = [
   'TRANSFORM_TEXT_WORKERS',
   'TRANSFORM_TEXT_MAX_DEPTH',
   'TRANSFORM_TEXT_MAX_NODES',
+  'TRANSFORM_MAX_SIZE_PNG',
+  'TRANSFORM_MAX_SIZE_JPEG',
+  'TRANSFORM_MAX_SIZE_SVG',
+  'IMAGE_MAX_INPUT_PIXELS',
+  'IMAGE_SVG_MAX_WIDTH',
+  'IMAGE_SVG_MAX_HEIGHT',
 ] as const;
 
 describe('Transformation configuration', () => {
@@ -43,6 +49,13 @@ describe('Transformation configuration', () => {
       TRANSFORM_TEXT_WORKERS: 2,
       TRANSFORM_TEXT_MAX_DEPTH: 64,
       TRANSFORM_TEXT_MAX_NODES: 1_000_000,
+      TRANSFORM_MAX_SIZE_PNG: 20 * 1024 * 1024,
+      TRANSFORM_MAX_SIZE_JPEG: 20 * 1024 * 1024,
+      TRANSFORM_MAX_SIZE_SVG: 2 * 1024 * 1024,
+      IMAGE_MAX_INPUT_PIXELS: 50_000_000,
+      IMAGE_SVG_MAX_WIDTH: 4096,
+      IMAGE_SVG_MAX_HEIGHT: 4096,
+      IMAGE_JPEG_DEFAULT_QUALITY: 80,
     });
   });
 
@@ -56,14 +69,31 @@ describe('Transformation configuration', () => {
     expect(value[key]).toBe(1234);
   });
 
-  it.each(keys)('rejects invalid values for %s', (key) => {
-    for (const invalid of [0, -1, 1.5, '10 МБ']) {
-      const { error } = configValidationSchema.validate({
+  it.each([...keys, 'IMAGE_JPEG_DEFAULT_QUALITY'] as const)(
+    'rejects invalid values for %s',
+    (key) => {
+      for (const invalid of [0, -1, 1.5, '10 МБ']) {
+        const { error } = configValidationSchema.validate({
+          ...requiredConfig,
+          [key]: invalid,
+        });
+        expect(error, `${key}: ${invalid}`).toBeDefined();
+      }
+    },
+  );
+
+  it('accepts IMAGE_JPEG_DEFAULT_QUALITY from 1 to 100 only', () => {
+    const validate = (quality: unknown) =>
+      configValidationSchema.validate({
         ...requiredConfig,
-        [key]: invalid,
+        IMAGE_JPEG_DEFAULT_QUALITY: quality,
       });
-      expect(error, `${key}: ${invalid}`).toBeDefined();
-    }
+
+    expect((validate('1').value as Config).IMAGE_JPEG_DEFAULT_QUALITY).toBe(1);
+    expect((validate('100').value as Config).IMAGE_JPEG_DEFAULT_QUALITY).toBe(
+      100,
+    );
+    expect(validate(101).error).toBeDefined();
   });
 
   it('sets the plugin limit from the largest configured format plus one byte', () => {
@@ -72,6 +102,9 @@ describe('Transformation configuration', () => {
       TRANSFORM_MAX_SIZE_JSON: 200,
       TRANSFORM_MAX_SIZE_XML: 300,
       TRANSFORM_MAX_SIZE_YAML: 500,
+      TRANSFORM_MAX_SIZE_PNG: 400,
+      TRANSFORM_MAX_SIZE_JPEG: 400,
+      TRANSFORM_MAX_SIZE_SVG: 50,
     };
     const options = getMultipartOptions({
       get: (key) => String(values[key]),
@@ -83,5 +116,21 @@ describe('Transformation configuration', () => {
       parts: 11,
       fileSize: 501,
     });
+  });
+
+  it('includes image formats in the plugin limit', () => {
+    const values: Partial<Config> = {
+      TRANSFORM_MAX_SIZE_CSV: 100,
+      TRANSFORM_MAX_SIZE_JSON: 200,
+      TRANSFORM_MAX_SIZE_XML: 300,
+      TRANSFORM_MAX_SIZE_YAML: 500,
+      TRANSFORM_MAX_SIZE_PNG: 900,
+      TRANSFORM_MAX_SIZE_JPEG: 700,
+      TRANSFORM_MAX_SIZE_SVG: 50,
+    };
+    const options = getMultipartOptions({
+      get: (key) => String(values[key]),
+    });
+    expect(options.limits?.fileSize).toBe(901);
   });
 });

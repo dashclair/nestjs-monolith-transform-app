@@ -65,6 +65,7 @@ function fakeEngine(limit = 8192, detected: Format | null = 'json') {
   const engine: ConversionEngine = {
     kind: 'file',
     supportedPairs: () => [],
+    getFormats: () => [],
     detectFormat,
     sizeLimit: () => limit,
     validateOptions: () => ({}),

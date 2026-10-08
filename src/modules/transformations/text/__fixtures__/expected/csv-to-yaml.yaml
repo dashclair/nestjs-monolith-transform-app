@@ -1,0 +1,12 @@
+- id: "1"
+  name: Smith, Anna
+  email: anna@example.com
+  note: says "hi"
+- id: "2"
+  name: Иван
+  email: ivan@example.com
+  note: ""
+- id: "3"
+  name: Bob
+  email: bob@example.com
+  note: =SUM(A1)

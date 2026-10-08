@@ -23,6 +23,7 @@ function fakeEngine() {
       { source: 'json', target: 'csv' },
       { source: 'csv', target: 'json' },
     ],
+    getFormats: () => [],
     detectFormat: vi.fn(),
     sizeLimit: vi.fn(),
     validateOptions: vi.fn(() => ({ applied: true })),
@@ -130,6 +131,22 @@ describe('TransformationPipelineService', () => {
       });
     });
 
+    it('records the options the engine reports as applied', async () => {
+      engine.convert.mockResolvedValueOnce({
+        body: Buffer.from('x'),
+        mimeType: 'image/png',
+        extension: 'png',
+        options: { applied: true, width: 512 },
+      });
+
+      await run();
+
+      expect(historyEntry()).toMatchObject({
+        status: 'success',
+        options: { applied: true, width: 512 },
+      });
+    });
+
     it('hands the engine the validated options, not the raw field', async () => {
       readerReturns({ targetFormat: 'csv', options: '{"raw":1}' });
 
@@ -232,11 +249,18 @@ describe('TransformationPipelineService', () => {
       });
     });
 
-    it('rejects options that are not JSON', async () => {
+    it('rejects options that are not JSON as INVALID_OPTIONS', async () => {
       readerReturns({ targetFormat: 'csv', options: '{oops' });
 
-      await expect(run()).rejects.toMatchObject({ code: 'INVALID_FIELDS' });
+      await expect(run()).rejects.toMatchObject({
+        code: 'INVALID_OPTIONS',
+        status: 400,
+      });
       expect(engine.validateOptions).not.toHaveBeenCalled();
+      expect(historyEntry()).toMatchObject({
+        errorCode: 'INVALID_OPTIONS',
+        options: null,
+      });
     });
 
     it('records INVALID_OPTIONS from the engine', async () => {

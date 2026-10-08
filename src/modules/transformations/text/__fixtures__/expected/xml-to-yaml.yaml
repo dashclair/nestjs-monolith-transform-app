@@ -1,0 +1,9 @@
+catalog:
+  book:
+    - title: XML & You
+      price: "10.50"
+      "@_id": "1"
+      "@_lang": en
+    - title: <Tags> & more
+      price: "007"
+      "@_id": "2"

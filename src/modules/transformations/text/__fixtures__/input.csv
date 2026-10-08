@@ -1,0 +1,4 @@
+id,name,email,note
+1,"Smith, Anna",anna@example.com,"says ""hi"""
+2,Иван,ivan@example.com,
+3,Bob,bob@example.com,=SUM(A1)

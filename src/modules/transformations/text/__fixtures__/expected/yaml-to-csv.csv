@@ -1,0 +1,3 @@
+name,port,enabled,started
+alpha,8080,true,2024-01-01
+beta,,no,
