@@ -138,8 +138,10 @@ export class TransformationPipelineService {
         try {
           rawOptions = JSON.parse(fields.options);
         } catch {
+          // The field itself is a valid string (ConvertFieldsDto); its content
+          // is the options, so this is an options error, not a fields one.
           throw new TransformationError(
-            'INVALID_FIELDS',
+            'INVALID_OPTIONS',
             HttpStatus.BAD_REQUEST,
             'Options must contain valid JSON',
           );
@@ -163,6 +165,8 @@ export class TransformationPipelineService {
         },
         Number(this.configService.get('TRANSFORM_TIMEOUT_MS')),
       );
+
+      historyContext.options = result.options ?? options;
 
       const durationMs = Math.round(performance.now() - startedAt);
 

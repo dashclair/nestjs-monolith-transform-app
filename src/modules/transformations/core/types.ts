@@ -48,4 +48,8 @@ export interface ConversionResult {
   body: Buffer;
   mimeType: string;
   extension: string;
+  // What was actually applied, defaults included, when the engine resolves
+  // more than validateOptions() could (e.g. an SVG's size, known only after
+  // reading it). Replaces the validated options in the success history entry.
+  options?: ConversionOptions;
 }

@@ -9,7 +9,6 @@ import {
   ConversionResult,
   DetectInput,
   FormatPair,
-  SupportedFormats,
   TextFormat,
 } from '../core/types';
 import { TEXT_PARSERS } from './parsers';
@@ -48,16 +47,6 @@ export class TextTransformationService extends ConversionEngine {
         .filter((target) => target !== source)
         .map((target) => ({ source, target })),
     );
-  }
-
-  getFormats(): SupportedFormats<TextFormat>[] {
-    const grouped = new Map<TextFormat, TextFormat[]>();
-
-    for (const { source, target } of this.supportedPairs()) {
-      grouped.set(source, [...(grouped.get(source) ?? []), target]);
-    }
-
-    return [...grouped].map(([source, target]) => ({ source, target }));
   }
 
   detectByMimeType(mimetype?: string): SupportedFormat | null {

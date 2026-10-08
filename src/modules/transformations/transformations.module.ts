@@ -7,10 +7,12 @@ import { TextTransformationController } from './text/text-transformation.control
 import { TextTransformationService } from './text/text-transformation.service';
 import { TextConversionRunner } from './text/runner/text-conversion.runner';
 import { PiscinaRunner } from './text/runner/piscina.runner';
+import { ImageTransformationService } from './image/image-transformation.service';
+import { ImageTransformationController } from './image/image-transformation.controller';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Transformation])],
-  controllers: [TextTransformationController],
+  controllers: [TextTransformationController, ImageTransformationController],
   providers: [
     TransformationHistoryService,
     TransformationPipelineService,
@@ -19,6 +21,7 @@ import { PiscinaRunner } from './text/runner/piscina.runner';
       provide: TextConversionRunner,
       useClass: PiscinaRunner,
     },
+    ImageTransformationService,
   ],
   exports: [TypeOrmModule, TransformationHistoryService],
 })

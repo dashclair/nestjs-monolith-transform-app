@@ -11,6 +11,9 @@ export function getMultipartOptions(
     Number(config.get('TRANSFORM_MAX_SIZE_JSON')),
     Number(config.get('TRANSFORM_MAX_SIZE_XML')),
     Number(config.get('TRANSFORM_MAX_SIZE_YAML')),
+    Number(config.get('TRANSFORM_MAX_SIZE_PNG')),
+    Number(config.get('TRANSFORM_MAX_SIZE_JPEG')),
+    Number(config.get('TRANSFORM_MAX_SIZE_SVG')),
   );
 
   return {

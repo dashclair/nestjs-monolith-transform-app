@@ -174,4 +174,31 @@ export const configValidationSchema = Joi.object<Config>({
     .min(1)
     .max(Number.MAX_SAFE_INTEGER - 1)
     .default(1_000_000),
+  TRANSFORM_MAX_SIZE_PNG: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER - 1)
+    .default(20 * 1024 * 1024),
+  TRANSFORM_MAX_SIZE_JPEG: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER - 1)
+    .default(20 * 1024 * 1024),
+  TRANSFORM_MAX_SIZE_SVG: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER - 1)
+    .default(2 * 1024 * 1024),
+  IMAGE_MAX_INPUT_PIXELS: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER)
+    .default(50_000_000),
+  IMAGE_SVG_MAX_WIDTH: Joi.number().integer().min(1).default(4096),
+  IMAGE_SVG_MAX_HEIGHT: Joi.number().integer().min(1).default(4096),
+  IMAGE_JPEG_DEFAULT_QUALITY: Joi.number()
+    .integer()
+    .min(1)
+    .max(100)
+    .default(80),
 }).and('STORAGE_S3_ACCESS_KEY_ID', 'STORAGE_S3_SECRET_ACCESS_KEY');

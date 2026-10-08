@@ -63,6 +63,7 @@
     "piscina": "^5.3.2",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "sharp": "^0.35.5",
     "typeorm": "^0.3.28",
     "typeorm-transactional": "^0.5.0",
     "yaml": "^2.9.1"

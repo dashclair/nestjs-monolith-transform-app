@@ -119,4 +119,11 @@ export interface Config {
   TRANSFORM_TEXT_WORKERS?: number; // worker threads for text conversion, default 2
   TRANSFORM_TEXT_MAX_DEPTH?: number; // max nesting depth of parsed data, default 64
   TRANSFORM_TEXT_MAX_NODES?: number; // max number of nodes in parsed data, default 1000000
+  TRANSFORM_MAX_SIZE_PNG?: number; // bytes, default 20 MiB
+  TRANSFORM_MAX_SIZE_JPEG?: number; // bytes, default 20 MiB
+  TRANSFORM_MAX_SIZE_SVG?: number; // bytes, default 2 MiB
+  IMAGE_MAX_INPUT_PIXELS?: number; // width × height of the input, default 50000000 (~7000×7000)
+  IMAGE_SVG_MAX_WIDTH?: number; // px, default 4096
+  IMAGE_SVG_MAX_HEIGHT?: number; // px, default 4096
+  IMAGE_JPEG_DEFAULT_QUALITY?: number; // 1–100, default 80
 }
