@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, StreamableFile } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, StreamableFile } from '@nestjs/common';
 import { ConversionEngine } from './conversion-engine';
 import { readMultipart } from './multipart-reader';
 import { plainToInstance } from 'class-transformer';
@@ -23,6 +23,8 @@ export interface ProgressCallback {
 
 @Injectable()
 export class TransformationPipelineService {
+  private readonly logger = new Logger(TransformationPipelineService.name);
+
   constructor(
     private readonly historyService: TransformationHistoryService,
     private readonly configService: ConfigService,
@@ -179,6 +181,18 @@ export class TransformationPipelineService {
         errorCode: null,
       });
 
+      this.logger.log({
+        event: 'transformation.convert.success',
+        userId: request.user.userId,
+        type: engine.kind,
+        sourceFormat: historyContext.sourceFormat,
+        targetFormat: historyContext.targetFormat,
+        fileSize: historyContext.fileSize,
+        outputSize: result.body.length,
+        durationMs,
+        transformationId: history?.id ?? null,
+      });
+
       reply.code(HttpStatus.OK).headers({
         'Content-Type': result.mimeType,
         'Content-Disposition': `attachment; filename="converted.${result.extension}"`,
@@ -198,14 +212,41 @@ export class TransformationPipelineService {
               HttpStatus.INTERNAL_SERVER_ERROR,
               'Internal server error',
             );
+      const durationMs = Math.round(performance.now() - startedAt);
+
       await this.historyService.write({
         userId: request.user.userId,
         type: engine.kind,
         ...historyContext,
         status: 'error',
         errorCode: failure.code,
-        durationMs: Math.round(performance.now() - startedAt),
+        durationMs,
       });
+
+      const logEntry = {
+        event: 'transformation.convert.failed',
+        userId: request.user.userId,
+        type: engine.kind,
+        sourceFormat: historyContext.sourceFormat,
+        targetFormat: historyContext.targetFormat,
+        fileSize: historyContext.fileSize,
+        durationMs,
+        errorCode: failure.code,
+        status: failure.getStatus(),
+      };
+
+      // Client errors (bad file, bad options, timeout) are expected traffic.
+      // Anything else is a bug: AllExceptionsFilter never sees the original
+      // error (it gets the wrapped 500), so its stack is logged here — server
+      // side only, the client still gets the generic message.
+      if (failure.code === 'INTERNAL_ERROR') {
+        this.logger.error(
+          logEntry,
+          error instanceof Error ? error.stack : String(error),
+        );
+      } else {
+        this.logger.warn(logEntry);
+      }
 
       throw failure;
     }

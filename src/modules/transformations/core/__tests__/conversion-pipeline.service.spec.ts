@@ -1,4 +1,4 @@
-import { HttpStatus, StreamableFile } from '@nestjs/common';
+import { HttpStatus, Logger, StreamableFile } from '@nestjs/common';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import type { RequestUser } from '@/core/auth/auth.types';
@@ -335,6 +335,78 @@ describe('TransformationPipelineService', () => {
       );
 
       await expect(run()).rejects.toMatchObject({ code: 'PARSE_ERROR' });
+    });
+  });
+
+  describe('logging', () => {
+    const log = vi.spyOn(Logger.prototype, 'log');
+    const warn = vi.spyOn(Logger.prototype, 'warn');
+    const error = vi.spyOn(Logger.prototype, 'error');
+
+    beforeEach(() => {
+      for (const spy of [log, warn, error]) {
+        spy.mockReset().mockImplementation(() => undefined);
+      }
+    });
+
+    afterAll(() => {
+      for (const spy of [log, warn, error]) {
+        spy.mockRestore();
+      }
+    });
+
+    it('logs a success with formats, sizes and the history id', async () => {
+      await run();
+
+      expect(log).toHaveBeenCalledExactlyOnceWith({
+        event: 'transformation.convert.success',
+        userId: 'user-1',
+        type: 'file',
+        sourceFormat: 'json',
+        targetFormat: 'csv',
+        fileSize: BODY.length,
+        outputSize: 4,
+        durationMs: expect.any(Number) as unknown,
+        transformationId: 'history-1',
+      });
+      expect(warn).not.toHaveBeenCalled();
+      expect(error).not.toHaveBeenCalled();
+    });
+
+    it('logs a client error as a warning with its code and status', async () => {
+      engine.convert.mockRejectedValueOnce(
+        new TransformationError('PARSE_ERROR', HttpStatus.BAD_REQUEST, 'Bad'),
+      );
+
+      await expect(run()).rejects.toMatchObject({ code: 'PARSE_ERROR' });
+
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          event: 'transformation.convert.failed',
+          errorCode: 'PARSE_ERROR',
+          status: HttpStatus.BAD_REQUEST,
+          sourceFormat: 'json',
+          targetFormat: 'csv',
+        }),
+      );
+      expect(error).not.toHaveBeenCalled();
+    });
+
+    it('logs an unexpected error with the original stack', async () => {
+      const cause = new Error('secret stack details');
+      engine.convert.mockRejectedValueOnce(cause);
+
+      await expect(run()).rejects.toMatchObject({ code: 'INTERNAL_ERROR' });
+
+      expect(error).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          event: 'transformation.convert.failed',
+          errorCode: 'INTERNAL_ERROR',
+          status: HttpStatus.INTERNAL_SERVER_ERROR,
+        }),
+        cause.stack,
+      );
+      expect(warn).not.toHaveBeenCalled();
     });
   });
 });
