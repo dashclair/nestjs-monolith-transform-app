@@ -9,10 +9,21 @@ import { TextConversionRunner } from './text/runner/text-conversion.runner';
 import { PiscinaRunner } from './text/runner/piscina.runner';
 import { ImageTransformationService } from './image/image-transformation.service';
 import { ImageTransformationController } from './image/image-transformation.controller';
+import { TransformationHistoryController } from './history/transformations-history.controller';
+import { TransformationsHistoryService } from './history/transformations-history.service';
+import { AdminTransformationHistoryController } from './history/admin-transformation-history.controller';
+
+import { RbacModule } from '../rbac';
+import { User } from '../users/entities/user.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Transformation])],
-  controllers: [TextTransformationController, ImageTransformationController],
+  imports: [TypeOrmModule.forFeature([Transformation, User]), RbacModule],
+  controllers: [
+    TextTransformationController,
+    ImageTransformationController,
+    TransformationHistoryController,
+    AdminTransformationHistoryController,
+  ],
   providers: [
     TransformationHistoryService,
     TransformationPipelineService,
@@ -22,6 +33,7 @@ import { ImageTransformationController } from './image/image-transformation.cont
       useClass: PiscinaRunner,
     },
     ImageTransformationService,
+    TransformationsHistoryService,
   ],
   exports: [TypeOrmModule, TransformationHistoryService],
 })

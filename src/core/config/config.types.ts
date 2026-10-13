@@ -126,4 +126,9 @@ export interface Config {
   IMAGE_SVG_MAX_WIDTH?: number; // px, default 4096
   IMAGE_SVG_MAX_HEIGHT?: number; // px, default 4096
   IMAGE_JPEG_DEFAULT_QUALITY?: number; // 1–100, default 80
+  TRANSFORMATIONS_RETENTION_DAYS?: number; // default 90
+  THROTTLE_TRANSFORMATIONS_HISTORY_LIMIT?: number; // default 30
+  THROTTLE_TRANSFORMATIONS_HISTORY_TTL?: number; // default 60, seconds
+  THROTTLE_ADMIN_TRANSFORMATIONS_HISTORY_LIMIT?: number; // default 20
+  THROTTLE_ADMIN_TRANSFORMATIONS_HISTORY_TTL?: number; // default 60, seconds
 }

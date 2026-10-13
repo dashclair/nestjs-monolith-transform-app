@@ -201,4 +201,21 @@ export const configValidationSchema = Joi.object<Config>({
     .min(1)
     .max(100)
     .default(80),
+  TRANSFORMATIONS_RETENTION_DAYS: Joi.number().integer().min(1).default(90),
+  THROTTLE_TRANSFORMATIONS_HISTORY_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(30),
+  THROTTLE_TRANSFORMATIONS_HISTORY_TTL: Joi.number()
+    .integer()
+    .min(1)
+    .default(60),
+  THROTTLE_ADMIN_TRANSFORMATIONS_HISTORY_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(20),
+  THROTTLE_ADMIN_TRANSFORMATIONS_HISTORY_TTL: Joi.number()
+    .integer()
+    .min(1)
+    .default(60),
 }).and('STORAGE_S3_ACCESS_KEY_ID', 'STORAGE_S3_SECRET_ACCESS_KEY');
