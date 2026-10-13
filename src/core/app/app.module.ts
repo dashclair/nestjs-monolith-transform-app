@@ -16,6 +16,7 @@ import { UsersModule } from '@/modules/users/users.module';
 import { SettingsModule } from '@/modules/settings/settings.module';
 import { StorageModule } from '@/core/storage/storage.module';
 import { TransformationsModule } from '@/modules/transformations/transformations.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { TransformationsModule } from '@/modules/transformations/transformations
     SettingsModule,
     StorageModule,
     TransformationsModule,
+    ScheduleModule.forRoot(),
   ],
   controllers: [TestErrorsController],
   providers: [

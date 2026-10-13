@@ -26,6 +26,7 @@ const bigintToNumber: ValueTransformer = {
 
 @Entity('transformations')
 @Index('IDX_transformations_user_created_id', ['userId', 'createdAt', 'id'])
+@Index('IDX_transformations_created_at', ['createdAt'])
 export class Transformation {
   @PrimaryGeneratedColumn('uuid', {
     primaryKeyConstraintName: 'PK_transformations_id',

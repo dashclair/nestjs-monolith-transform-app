@@ -15,6 +15,7 @@ import { AdminTransformationHistoryController } from './history/admin-transforma
 
 import { RbacModule } from '../rbac';
 import { User } from '../users/entities/user.entity';
+import { TransformationsCleanupService } from './history/transformations-cleanup.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Transformation, User]), RbacModule],
@@ -34,6 +35,7 @@ import { User } from '../users/entities/user.entity';
     },
     ImageTransformationService,
     TransformationsHistoryService,
+    TransformationsCleanupService,
   ],
   exports: [TypeOrmModule, TransformationHistoryService],
 })

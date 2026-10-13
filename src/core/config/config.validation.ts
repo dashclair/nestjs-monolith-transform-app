@@ -1,3 +1,4 @@
+import { validateCronExpression } from 'cron';
 import Joi from 'joi';
 
 import { Config } from './config.types';
@@ -202,6 +203,23 @@ export const configValidationSchema = Joi.object<Config>({
     .max(100)
     .default(80),
   TRANSFORMATIONS_RETENTION_DAYS: Joi.number().integer().min(1).default(90),
+  TRANSFORMATIONS_CLEANUP_ENABLED: Joi.boolean().default(true),
+  // Checked here so a typo fails config validation, not job registration.
+  TRANSFORMATIONS_CLEANUP_CRON: Joi.string()
+    .default('0 * * * *')
+    .custom((value: string, helpers) => {
+      const result = validateCronExpression(value);
+      return result.valid
+        ? value
+        : helpers.message({
+            custom: `"{{#label}}" is not a valid cron expression: ${result.error?.message}`,
+          });
+    }),
+  TRANSFORMATIONS_CLEANUP_BATCH: Joi.number()
+    .integer()
+    .min(1)
+    .max(10_000)
+    .default(500),
   THROTTLE_TRANSFORMATIONS_HISTORY_LIMIT: Joi.number()
     .integer()
     .min(1)

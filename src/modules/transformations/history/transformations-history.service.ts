@@ -27,12 +27,12 @@ import {
   TransformationHistoryQueryDto,
   TransformationHistoryResponseDto,
 } from './transformations-history.dto';
+import { retentionCutoff } from './retention.utils';
 import { User } from '@/modules/users/entities/user.entity';
 
 const SORT_COLUMN = 'transformation.createdAt';
 const ID_COLUMN = 'transformation.id';
 const DIRECTION: SortDirection = 'DESC';
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class TransformationsHistoryService {
@@ -69,7 +69,9 @@ export class TransformationsHistoryService {
       ])
       .where('transformation.userId = :userId', { userId })
       .andWhere('transformation.createdAt >= :retentionCutoff', {
-        retentionCutoff: this.retentionCutoff(),
+        retentionCutoff: retentionCutoff(
+          Number(this.configService.get('TRANSFORMATIONS_RETENTION_DAYS')),
+        ),
       });
 
     this.applyFilters(qb, query);
@@ -157,14 +159,6 @@ export class TransformationsHistoryService {
         isUUID(parsed.id) &&
         isIsoTimestamp(parsed.value),
     );
-  }
-
-  private retentionCutoff(): Date {
-    const days = Number(
-      this.configService.get('TRANSFORMATIONS_RETENTION_DAYS'),
-    );
-
-    return new Date(Date.now() - days * DAY_MS);
   }
 
   private applyFilters(

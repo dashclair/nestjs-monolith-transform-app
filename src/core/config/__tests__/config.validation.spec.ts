@@ -134,3 +134,55 @@ describe('Transformation configuration', () => {
     expect(options.limits?.fileSize).toBe(901);
   });
 });
+
+describe('Transformations cleanup configuration', () => {
+  const validate = (overrides: Record<string, unknown>) =>
+    configValidationSchema.validate({ ...requiredConfig, ...overrides });
+
+  it('supplies defaults', () => {
+    const result = validate({});
+    expect(result.error).toBeUndefined();
+    expect(result.value).toMatchObject({
+      TRANSFORMATIONS_CLEANUP_ENABLED: true,
+      TRANSFORMATIONS_CLEANUP_CRON: '0 * * * *',
+      TRANSFORMATIONS_CLEANUP_BATCH: 500,
+    });
+  });
+
+  it('accepts environment strings', () => {
+    const result = validate({
+      TRANSFORMATIONS_CLEANUP_ENABLED: 'false',
+      TRANSFORMATIONS_CLEANUP_CRON: '*/15 3 * * 1-5',
+      TRANSFORMATIONS_CLEANUP_BATCH: '10000',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.value).toMatchObject({
+      TRANSFORMATIONS_CLEANUP_ENABLED: false,
+      TRANSFORMATIONS_CLEANUP_CRON: '*/15 3 * * 1-5',
+      TRANSFORMATIONS_CLEANUP_BATCH: 10_000,
+    });
+  });
+
+  it.each(['0 * * *', '61 * * * *', 'every hour', ''])(
+    'rejects invalid cron expression %j',
+    (cron) => {
+      const { error } = validate({ TRANSFORMATIONS_CLEANUP_CRON: cron });
+      expect(error?.message).toContain('TRANSFORMATIONS_CLEANUP_CRON');
+    },
+  );
+
+  it.each([0, -1, 1.5, 10_001, 'many'])(
+    'rejects invalid TRANSFORMATIONS_CLEANUP_BATCH %j',
+    (batch) => {
+      expect(
+        validate({ TRANSFORMATIONS_CLEANUP_BATCH: batch }).error,
+      ).toBeDefined();
+    },
+  );
+
+  it('rejects a non-boolean TRANSFORMATIONS_CLEANUP_ENABLED', () => {
+    expect(
+      validate({ TRANSFORMATIONS_CLEANUP_ENABLED: 'yes please' }).error,
+    ).toBeDefined();
+  });
+});
