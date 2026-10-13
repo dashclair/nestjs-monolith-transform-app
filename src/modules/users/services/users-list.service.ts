@@ -5,6 +5,12 @@ import { isUUID } from 'class-validator';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 
 import { ConfigService } from '@/core/config/config.service';
+import {
+  applyKeysetCursor,
+  applyKeysetSorting,
+  fetchKeysetPage,
+  SortDirection,
+} from '@/core/database/keyset-pagination';
 
 import { User } from '../entities/user.entity';
 import {
@@ -24,6 +30,9 @@ const SORT_COLUMNS = {
   [UserSortField.CreatedAt]: 'user.createdAt',
   [UserSortField.Email]: 'user.email',
 } satisfies Record<UserSortField, string>;
+
+const toDirection = (order: SortOrder): SortDirection =>
+  order === SortOrder.Asc ? 'ASC' : 'DESC';
 
 @Injectable()
 export class UsersListService {
@@ -55,12 +64,7 @@ export class UsersListService {
     this.applySorting(qb, query.sort, query.order);
     this.applyCursor(qb, query);
 
-    // limit + 1 — the extra row only signals that a next page exists
-    const users = await qb.take(limit + 1).getMany();
-
-    const hasNextPage = users.length > limit;
-
-    const items = hasNextPage ? users.slice(0, limit) : users;
+    const { items, hasNextPage } = await fetchKeysetPage(qb, limit);
 
     const lastUser = items.at(-1);
 
@@ -148,10 +152,7 @@ export class UsersListService {
     sort: UserSortField,
     order: SortOrder,
   ): void {
-    const direction = order === SortOrder.Asc ? 'ASC' : 'DESC';
-
-    qb.orderBy(SORT_COLUMNS[sort], direction);
-    qb.addOrderBy('user.id', direction);
+    applyKeysetSorting(qb, SORT_COLUMNS[sort], 'user.id', toDirection(order));
   }
 
   private applyCursor(
@@ -162,16 +163,14 @@ export class UsersListService {
       return;
     }
 
-    const { value, id } = decodeUsersCursor(
-      query.cursor,
-      query.sort,
-      query.order,
-    );
-    const operator = query.order === SortOrder.Asc ? '>' : '<';
+    const cursor = decodeUsersCursor(query.cursor, query.sort, query.order);
 
-    qb.andWhere(
-      `(${SORT_COLUMNS[query.sort]}, user.id) ${operator} (:value, :id)`,
-      { value, id },
+    applyKeysetCursor(
+      qb,
+      SORT_COLUMNS[query.sort],
+      'user.id',
+      toDirection(query.order),
+      cursor,
     );
   }
 
