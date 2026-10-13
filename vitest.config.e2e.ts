@@ -21,6 +21,11 @@ export default defineConfig({
       // migrated (run `npm run migration:run` beforehand), so skip the
       // auto-run entirely here instead of loading migration files at all.
       POSTGRES_MIGRATIONS_RUN: 'false',
+      // Every suite boots AppModule, so the retention cleanup cron would
+      // otherwise be live and could delete fixtures mid-run. Set here, not
+      // in a spec: ConfigModule validates env once, when AppModule is
+      // imported, so a later `process.env` assignment is not seen.
+      TRANSFORMATIONS_CLEANUP_ENABLED: 'false',
     },
   },
 });
