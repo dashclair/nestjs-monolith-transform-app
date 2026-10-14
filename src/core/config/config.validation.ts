@@ -137,6 +137,11 @@ export const configValidationSchema = Joi.object<Config>({
   STORAGE_S3_ACCESS_KEY_ID: Joi.string().empty('').optional(),
   STORAGE_S3_SECRET_ACCESS_KEY: Joi.string().empty('').optional(),
   STORAGE_S3_FORCE_PATH_STYLE: Joi.boolean().optional().default(false), // true для RustFS / S3-совместимых
+  STORAGE_MAX_FILE_BYTES: Joi.number()
+    .integer()
+    .min(1)
+    .max(Number.MAX_SAFE_INTEGER - 1)
+    .default(50 * 1024 * 1024),
 
   /**
    * Transformation limits: sizes in bytes, timeout in milliseconds, TTL in seconds.
@@ -233,6 +238,22 @@ export const configValidationSchema = Joi.object<Config>({
     .min(1)
     .default(20),
   THROTTLE_ADMIN_TRANSFORMATIONS_HISTORY_TTL: Joi.number()
+    .integer()
+    .min(1)
+    .default(60),
+  THROTTLE_TRANSFORMATIONS_DOWNLOAD_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(10),
+  THROTTLE_TRANSFORMATIONS_DOWNLOAD_TTL: Joi.number()
+    .integer()
+    .min(1)
+    .default(60),
+  THROTTLE_ADMIN_TRANSFORMATIONS_DOWNLOAD_LIMIT: Joi.number()
+    .integer()
+    .min(1)
+    .default(10),
+  THROTTLE_ADMIN_TRANSFORMATIONS_DOWNLOAD_TTL: Joi.number()
     .integer()
     .min(1)
     .default(60),

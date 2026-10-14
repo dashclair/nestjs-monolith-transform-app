@@ -13,8 +13,24 @@ import {
   ConversionOptions,
   ConversionRequest,
   ConversionResult,
+  FileStatus,
   Format,
 } from './types';
+import { randomUUID } from 'crypto';
+import { TransformationsStorageService } from './transformations-storage.service';
+import { win32 } from 'path';
+
+function buildResultFileName(
+  original: string | null,
+  extension: string,
+): string {
+  const base = original ? win32.basename(original).replace(/\.[^.]*$/, '') : '';
+  const safe = base
+    .replace(/\p{Cc}/gu, '')
+    .trim()
+    .slice(0, 200);
+  return `${safe || 'converted'}.${extension}`;
+}
 
 export interface ProgressCallback {
   fileSize: number;
@@ -28,6 +44,7 @@ export class TransformationPipelineService {
   constructor(
     private readonly historyService: TransformationHistoryService,
     private readonly configService: ConfigService,
+    private readonly storage: TransformationsStorageService,
   ) {}
 
   async conversionWithTimeout(
@@ -171,15 +188,68 @@ export class TransformationPipelineService {
       historyContext.options = result.options ?? options;
 
       const durationMs = Math.round(performance.now() - startedAt);
+      const transformationId = randomUUID();
+
+      let fileStatus: FileStatus | null = null;
+      let storageKey: string | null = null;
+      const resultFileName = buildResultFileName(
+        input.originalFileName,
+        result.extension,
+      );
+
+      if (fields.save === 'true') {
+        const maxBytes = Number(
+          this.configService.get('STORAGE_MAX_FILE_BYTES'),
+        );
+
+        if (result.body.length > maxBytes) {
+          fileStatus = 'skipped';
+        } else {
+          fileStatus = 'pending';
+          storageKey = `transformations/${request.user.userId}/${transformationId}.${result.extension}`;
+        }
+      }
 
       const history = await this.historyService.write({
+        id: transformationId,
         userId: request.user.userId,
         type: engine.kind,
         ...historyContext,
         durationMs,
         status: 'success',
         errorCode: null,
+        storageKey,
+        fileStatus,
+        resultMimeType: result.mimeType,
+        resultSize: result.body.length,
+        resultFileName: resultFileName,
       });
+
+      if (fileStatus !== null) {
+        if (history === null) {
+          // No row to attach the file to, so nothing could ever download it.
+          this.logger.warn({
+            event: 'transformation.file.save_skipped',
+            userId: request.user.userId,
+            transformationId: null,
+            storageKey: null,
+            resultSize: result.body.length,
+            reason: 'history_write_failed',
+          });
+        } else if (fileStatus === 'skipped') {
+          this.logger.warn({
+            event: 'transformation.file.save_skipped',
+            userId: request.user.userId,
+            transformationId: history.id,
+            storageKey: null,
+            resultSize: result.body.length,
+            reason: 'too_large',
+          });
+        } else {
+          // Not awaited: saving must not delay the response.
+          void this.storage.saveResult(history, result);
+        }
+      }
 
       this.logger.log({
         event: 'transformation.convert.success',
@@ -235,10 +305,6 @@ export class TransformationPipelineService {
         status: failure.getStatus(),
       };
 
-      // Client errors (bad file, bad options, timeout) are expected traffic.
-      // Anything else is a bug: AllExceptionsFilter never sees the original
-      // error (it gets the wrapped 500), so its stack is logged here — server
-      // side only, the client still gets the generic message.
       if (failure.code === 'INTERNAL_ERROR') {
         this.logger.error(
           logEntry,

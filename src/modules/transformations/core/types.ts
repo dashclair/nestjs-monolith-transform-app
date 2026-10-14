@@ -4,13 +4,14 @@ export type TransformationKind = (typeof TRANSFORMATION_KINDS)[number];
 export const TRANSFORMATION_STATUSES = ['success', 'error'] as const;
 export type TransformationStatus = (typeof TRANSFORMATION_STATUSES)[number];
 
+export type FileStatus = 'pending' | 'stored' | 'failed' | 'skipped';
+
 export const TEXT_FORMATS = ['csv', 'json', 'xml', 'yaml'] as const;
 export type TextFormat = (typeof TEXT_FORMATS)[number];
 
 export const IMAGE_FORMATS = ['png', 'jpeg', 'svg'] as const;
 export type ImageFormat = (typeof IMAGE_FORMATS)[number];
 
-// Full list for DTO validation (`@IsIn(FORMATS)`), e.g. history filters.
 export const FORMATS = [...TEXT_FORMATS, ...IMAGE_FORMATS] as const;
 export type Format = TextFormat | ImageFormat;
 
@@ -19,14 +20,13 @@ export interface FormatPair<F extends Format = Format> {
   target: F;
 }
 
-// Item of `GET .../formats`: pairs grouped by source.
 export interface SupportedFormats<F extends Format = Format> {
   source: F;
   target: F[];
 }
 
 export interface DetectInput {
-  head: Buffer; // first DETECT_HEAD_BYTES of the file (or all of it if shorter)
+  head: Buffer;
   filename?: string; // client-supplied, a hint only
   mimetype?: string; // client-supplied, a hint only
 }
@@ -48,8 +48,5 @@ export interface ConversionResult {
   body: Buffer;
   mimeType: string;
   extension: string;
-  // What was actually applied, defaults included, when the engine resolves
-  // more than validateOptions() could (e.g. an SVG's size, known only after
-  // reading it). Replaces the validated options in the success history entry.
   options?: ConversionOptions;
 }

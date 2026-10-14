@@ -3,18 +3,28 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { Transformation } from '@/modules/transformations/entities/transformation.entity';
-import type { ConversionOptions, Format, TransformationKind } from './types';
+import type {
+  ConversionOptions,
+  FileStatus,
+  Format,
+  TransformationKind,
+} from './types';
 import type { TransformationErrorCode } from './transformation-error';
 
 export type WriteTransformationInput = {
+  id?: string;
   userId: string;
   type: TransformationKind;
   sourceFormat: Format | null;
   targetFormat: Format | null;
   fileSize: number;
   durationMs: number;
-  // Pass only options validated by the engine, never raw multipart fields.
   options: ConversionOptions | null;
+  storageKey?: string | null;
+  fileStatus?: FileStatus | null;
+  resultMimeType?: string | null;
+  resultSize?: number | null;
+  resultFileName?: string;
 } & (
   | { status: 'success'; errorCode: null }
   | { status: 'error'; errorCode: TransformationErrorCode }
@@ -34,7 +44,6 @@ export class TransformationHistoryService {
       const entry = this.transformations.create(input);
       return await this.transformations.save(entry);
     } catch {
-      // Database errors can contain SQL parameters; do not log their raw text.
       this.logger.error({
         event: 'transformation.history.write_failed',
         userId: input.userId,

@@ -4,10 +4,10 @@ import { CronJob } from 'cron';
 import { DataSource, QueryRunner } from 'typeorm';
 
 import { ConfigService } from '@/core/config/config.service';
+import { StorageService } from '@/core/storage/storage.service';
 
-import { retentionCutoff } from './retention.utils';
+import { retentionCutoff } from '../utils/retention.utils';
 
-// Arbitrary, but must be unique among the advisory locks taken in this database.
 const CLEANUP_LOCK_KEY = 22_022;
 const JOB_NAME = 'transformations-cleanup';
 
@@ -19,10 +19,9 @@ export class TransformationsCleanupService implements OnModuleInit {
     private readonly config: ConfigService,
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly dataSource: DataSource,
+    private readonly storage: StorageService,
   ) {}
 
-  // Registered here rather than with @Cron(): the decorator argument is
-  // evaluated at import time, before the config is available.
   onModuleInit(): void {
     if (String(this.config.get('TRANSFORMATIONS_CLEANUP_ENABLED')) !== 'true') {
       return;
@@ -36,14 +35,8 @@ export class TransformationsCleanupService implements OnModuleInit {
     job.start();
   }
 
-  /**
-   * Deletes history entries older than the retention period in batches.
-   * Never throws: a failed run is logged and the next one picks up the rest.
-   */
   async run(): Promise<void> {
     const startedAt = Date.now();
-    // One connection for the whole run: the advisory lock belongs to the
-    // session, so it must be taken and released on the same connection.
     const qr = this.dataSource.createQueryRunner();
     let locked = false;
 
@@ -82,7 +75,6 @@ export class TransformationsCleanupService implements OnModuleInit {
         durationMs: Date.now() - startedAt,
       });
     } catch (error) {
-      // Only the message: a QueryFailedError also carries the query parameters.
       this.logger.error({
         event: 'transformations.cleanup.failed',
         message: error instanceof Error ? error.message : 'Unknown error',
@@ -102,8 +94,6 @@ export class TransformationsCleanupService implements OnModuleInit {
     }
   }
 
-  // Each batch is its own short transaction, so a large backlog never holds
-  // row locks for the whole run.
   private async deleteBatch(
     qr: QueryRunner,
     cutoff: Date,
@@ -113,15 +103,24 @@ export class TransformationsCleanupService implements OnModuleInit {
 
     try {
       const rows = (await qr.query(
-        `SELECT id FROM "transformations"
+        `SELECT id, "storageKey" FROM "transformations"
           WHERE "createdAt" < $1
           ORDER BY "createdAt"
           LIMIT $2
           FOR UPDATE SKIP LOCKED`,
         [cutoff, batchSize],
-      )) as { id: string }[];
+      )) as {
+        id: string;
+        storageKey: string | null;
+      }[];
 
       if (rows.length > 0) {
+        for (const row of rows) {
+          if (row.storageKey !== null) {
+            await this.storage.delete(row.storageKey);
+          }
+        }
+
         await qr.query(
           'DELETE FROM "transformations" WHERE id = ANY($1::uuid[])',
           [rows.map((row) => row.id)],

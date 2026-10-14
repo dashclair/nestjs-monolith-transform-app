@@ -8,9 +8,9 @@ import {
 import { PermissionsGuard, REQUIRE_PERMISSION_KEY } from '@/modules/rbac';
 
 import { AdminTransformationHistoryController } from '../admin-transformation-history.controller';
-import { TransformationHistoryQueryDto } from '../transformations-history.dto';
+import { TransformationHistoryQueryDto } from '../dto/transformations-history.dto';
 import { TransformationHistoryController } from '../transformations-history.controller';
-import type { TransformationsHistoryService } from '../transformations-history.service';
+import type { TransformationsHistoryService } from '../services/history-transformations.service';
 
 const THROTTLER_LIMIT = 'THROTTLER:LIMIT';
 const THROTTLER_TTL = 'THROTTLER:TTL';

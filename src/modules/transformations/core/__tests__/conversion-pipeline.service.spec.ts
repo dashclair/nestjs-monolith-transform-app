@@ -10,6 +10,7 @@ import { TransformationPipelineService } from '../conversion-pipeline.service';
 import { readMultipart, type ReadMultipartResult } from '../multipart-reader';
 import { TransformationError } from '../transformation-error';
 import type { TransformationHistoryService } from '../transformation-history.service';
+import type { TransformationsStorageService } from '../transformations-storage.service';
 
 // Multipart parsing has its own spec; here the reader only supplies its result.
 vi.mock('../multipart-reader', () => ({ readMultipart: vi.fn() }));
@@ -55,7 +56,10 @@ function fakeReply() {
 }
 
 // The reader reports progress before it fails or returns, like the real one.
-function readerReturns(fields: Record<string, unknown>) {
+function readerReturns(
+  fields: Record<string, unknown>,
+  originalFileName: string | null = null,
+) {
   vi.mocked(readMultipart).mockImplementation(
     (_request, _engine, onProgress) => {
       onProgress?.({ fileSize: BODY.length, sourceFormat: 'json' });
@@ -64,6 +68,7 @@ function readerReturns(fields: Record<string, unknown>) {
         source: 'json',
         fileSize: BODY.length,
         fields,
+        originalFileName,
       };
       return Promise.resolve(result);
     },
@@ -85,7 +90,8 @@ describe('TransformationPipelineService', () => {
       Promise.resolve({ id: 'history-1' } as Transformation),
     ),
   };
-  const config = { get: vi.fn(() => '1000') };
+  const config = { get: vi.fn<(key: string) => string>(() => '1000') };
+  const storage = { saveResult: vi.fn(() => Promise.resolve()) };
   let engine: ReturnType<typeof fakeEngine>;
   let pipeline: TransformationPipelineService;
 
@@ -96,6 +102,7 @@ describe('TransformationPipelineService', () => {
     pipeline = new TransformationPipelineService(
       history as unknown as TransformationHistoryService,
       config as unknown as ConfigService,
+      storage as unknown as TransformationsStorageService,
     );
     readerReturns({ targetFormat: 'csv' });
   });
@@ -119,6 +126,7 @@ describe('TransformationPipelineService', () => {
         'X-Transformation-Id': 'history-1',
       });
       expect(history.write).toHaveBeenCalledExactlyOnceWith({
+        id: expect.any(String) as unknown,
         userId: 'user-1',
         type: 'file',
         sourceFormat: 'json',
@@ -128,7 +136,48 @@ describe('TransformationPipelineService', () => {
         durationMs: expect.any(Number) as unknown,
         status: 'success',
         errorCode: null,
+        storageKey: null,
+        fileStatus: null,
+        resultMimeType: 'text/csv; charset=utf-8',
+        resultSize: 4,
+        resultFileName: 'converted.csv',
       });
+    });
+
+    it.each([
+      ['swaps the extension', 'report.json', 'report.csv'],
+      ['keeps inner dots', 'q3.final.json', 'q3.final.csv'],
+      ['strips a POSIX path', '../../etc/data.json', 'data.csv'],
+      ['strips a Windows path', 'C:\\fakepath\\data.json', 'data.csv'],
+      ['strips control characters', 'a\r\nb.json', 'ab.csv'],
+      ['falls back without a name', null, 'converted.csv'],
+      ['falls back when nothing is left', '\u0000.json', 'converted.csv'],
+    ])('resultFileName %s', async (_label, originalFileName, expected) => {
+      readerReturns({ targetFormat: 'csv' }, originalFileName);
+
+      await run();
+
+      expect(historyEntry()).toMatchObject({ resultFileName: expected });
+    });
+
+    it('caps the resultFileName base at 200 characters', async () => {
+      readerReturns({ targetFormat: 'csv' }, `${'a'.repeat(300)}.json`);
+
+      await run();
+
+      expect(historyEntry().resultFileName).toBe(`${'a'.repeat(200)}.csv`);
+    });
+
+    it('takes the resultFileName extension from the engine, not targetFormat', async () => {
+      engine.convert.mockResolvedValueOnce({
+        body: Buffer.from('x'),
+        mimeType: 'image/jpeg',
+        extension: 'jpg',
+      });
+
+      await run();
+
+      expect(historyEntry().resultFileName).toBe('converted.jpg');
     });
 
     it('records the options the engine reports as applied', async () => {
@@ -181,6 +230,82 @@ describe('TransformationPipelineService', () => {
 
       await expect(run(reply)).resolves.toBeInstanceOf(StreamableFile);
       expect(headers).not.toHaveProperty('X-Transformation-Id');
+    });
+  });
+
+  describe('saving the result', () => {
+    it('writes a pending entry keyed by its own id and saves it', async () => {
+      readerReturns({ targetFormat: 'csv', save: 'true' });
+
+      await run();
+
+      const entry = historyEntry();
+      expect(entry.id).toEqual(expect.any(String));
+      expect(entry).toMatchObject({
+        fileStatus: 'pending',
+        storageKey: `transformations/user-1/${entry.id}.csv`,
+      });
+      expect(storage.saveResult).toHaveBeenCalledExactlyOnceWith(
+        { id: 'history-1' },
+        expect.objectContaining({ extension: 'csv' }),
+      );
+    });
+
+    it('responds without waiting for the save to finish', async () => {
+      readerReturns({ targetFormat: 'csv', save: 'true' });
+      storage.saveResult.mockReturnValueOnce(new Promise(() => undefined));
+
+      await expect(run()).resolves.toBeInstanceOf(StreamableFile);
+    });
+
+    it('skips a result larger than STORAGE_MAX_FILE_BYTES', async () => {
+      readerReturns({ targetFormat: 'csv', save: 'true' });
+      config.get.mockImplementation((key: string) =>
+        key === 'STORAGE_MAX_FILE_BYTES' ? '3' : '1000',
+      );
+
+      await expect(run()).resolves.toBeInstanceOf(StreamableFile);
+      expect(config.get).toHaveBeenCalledWith('STORAGE_MAX_FILE_BYTES');
+      expect(historyEntry()).toMatchObject({
+        fileStatus: 'skipped',
+        storageKey: null,
+      });
+      expect(storage.saveResult).not.toHaveBeenCalled();
+    });
+
+    it('does not save when the history write fails', async () => {
+      readerReturns({ targetFormat: 'csv', save: 'true' });
+      history.write.mockResolvedValueOnce(null);
+
+      await expect(run()).resolves.toBeInstanceOf(StreamableFile);
+      expect(storage.saveResult).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['absent', { targetFormat: 'csv' }],
+      ['false', { targetFormat: 'csv', save: 'false' }],
+    ])('does not save when save is %s', async (_case, fields) => {
+      readerReturns(fields);
+
+      await run();
+
+      expect(historyEntry()).toMatchObject({
+        fileStatus: null,
+        storageKey: null,
+      });
+      expect(storage.saveResult).not.toHaveBeenCalled();
+    });
+
+    it('keeps file fields out of the error entry', async () => {
+      readerReturns({ targetFormat: 'csv', save: 'true' });
+      engine.convert.mockRejectedValueOnce(
+        new TransformationError('PARSE_ERROR', HttpStatus.BAD_REQUEST, 'Bad'),
+      );
+
+      await expect(run()).rejects.toMatchObject({ code: 'PARSE_ERROR' });
+      expect(historyEntry()).not.toHaveProperty('storageKey');
+      expect(historyEntry()).not.toHaveProperty('fileStatus');
+      expect(storage.saveResult).not.toHaveBeenCalled();
     });
   });
 
@@ -371,6 +496,40 @@ describe('TransformationPipelineService', () => {
       });
       expect(warn).not.toHaveBeenCalled();
       expect(error).not.toHaveBeenCalled();
+    });
+
+    it('logs a skipped save of a too large result as a warning', async () => {
+      readerReturns({ targetFormat: 'csv', save: 'true' });
+      config.get.mockImplementation((key: string) =>
+        key === 'STORAGE_MAX_FILE_BYTES' ? '3' : '1000',
+      );
+
+      await run();
+
+      expect(warn).toHaveBeenCalledExactlyOnceWith({
+        event: 'transformation.file.save_skipped',
+        userId: 'user-1',
+        transformationId: 'history-1',
+        storageKey: null,
+        resultSize: 4,
+        reason: 'too_large',
+      });
+    });
+
+    it('logs a skipped save when the history write fails', async () => {
+      readerReturns({ targetFormat: 'csv', save: 'true' });
+      history.write.mockResolvedValueOnce(null);
+
+      await run();
+
+      expect(warn).toHaveBeenCalledExactlyOnceWith({
+        event: 'transformation.file.save_skipped',
+        userId: 'user-1',
+        transformationId: null,
+        storageKey: null,
+        resultSize: 4,
+        reason: 'history_write_failed',
+      });
     });
 
     it('logs a client error as a warning with its code and status', async () => {

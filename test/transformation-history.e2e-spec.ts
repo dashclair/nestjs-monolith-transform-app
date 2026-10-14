@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import fastifyCookie from '@fastify/cookie';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import {
   FastifyAdapter,
@@ -16,10 +16,12 @@ import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialE
 import { AppModule } from '@/core/app/app.module';
 import { ConfigService } from '@/core/config/config.service';
 import { TokenService } from '@/core/auth/services/token.service';
+import { StorageNotFoundError } from '@/core/storage/storage.errors';
+import { StorageService } from '@/core/storage/storage.service';
 import { PasswordService } from '@/modules/auth/services/password.service';
 import { Role } from '@/modules/rbac/entities/role.entity';
 import { Transformation } from '@/modules/transformations/entities/transformation.entity';
-import { TransformationsCleanupService } from '@/modules/transformations/history/transformations-cleanup.service';
+import { TransformationsCleanupService } from '@/modules/transformations/history/services/cleanup-transformations.service';
 import { User } from '@/modules/users/entities/user.entity';
 
 type HistoryItem = Record<string, unknown> & { id: string };
@@ -43,6 +45,9 @@ describe('Transformation history (e2e)', () => {
   let rolesRepo: Repository<Role>;
   let transformationsRepo: Repository<Transformation>;
   let tokenService: TokenService;
+  let storage: StorageService;
+  // Files the suite writes; removed in afterAll in case a test fails midway.
+  const storedKeys: string[] = [];
 
   const SELF_EMAIL = 'e2e-history-self@test.local';
   const OTHER_EMAIL = 'e2e-history-other@test.local';
@@ -143,6 +148,31 @@ describe('Transformation history (e2e)', () => {
     return rows.map((r) => r.id!);
   };
 
+  // Puts a result file into storage and links it to an existing row.
+  const attachFile = async (id: string): Promise<string> => {
+    const storageKey = `transformations/${selfId}/${id}.json`;
+    storedKeys.push(storageKey);
+    await storage.put(storageKey, Buffer.from('{}'), {
+      contentType: 'application/json',
+    });
+    await transformationsRepo.update(
+      { id },
+      { storageKey, fileStatus: 'stored' },
+    );
+    return storageKey;
+  };
+
+  const fileExists = async (key: string): Promise<boolean> => {
+    try {
+      const { stream } = await storage.get(key);
+      stream.destroy();
+      return true;
+    } catch (error) {
+      if (error instanceof StorageNotFoundError) return false;
+      throw error;
+    }
+  };
+
   const getHistory = (
     path: string,
     token: string | null,
@@ -188,6 +218,7 @@ describe('Transformation history (e2e)', () => {
     rolesRepo = moduleFixture.get(getRepositoryToken(Role));
     transformationsRepo = moduleFixture.get(getRepositoryToken(Transformation));
     tokenService = moduleFixture.get(TokenService);
+    storage = moduleFixture.get(StorageService);
 
     const retentionDays = Number(
       moduleFixture.get(ConfigService).get('TRANSFORMATIONS_RETENTION_DAYS'),
@@ -243,6 +274,7 @@ describe('Transformation history (e2e)', () => {
 
   afterAll(async () => {
     for (const key of THROTTLE_KEYS) delete process.env[key];
+    await Promise.all(storedKeys.map((key) => storage?.delete(key)));
     await cleanup();
     await app?.close();
   });
@@ -296,6 +328,7 @@ describe('Transformation history (e2e)', () => {
           'fileAvailable',
           'fileSize',
           'id',
+          'resultFileName',
           'sourceFormat',
           'status',
           'targetFormat',
@@ -501,17 +534,51 @@ describe('Transformation history (e2e)', () => {
       ).toBe(false);
     });
 
+    // Must run before the successful cleanup below, which deletes the row.
+    it('keeps the row and its file when deleting from storage fails', async () => {
+      const expiredKey = await attachFile(ids.expired);
+      const deleteSpy = vi
+        .spyOn(storage, 'delete')
+        .mockRejectedValueOnce(new Error('storage unavailable'));
+      const errorSpy = vi
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => undefined);
+
+      try {
+        await app.get(TransformationsCleanupService).run();
+
+        expect(errorSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            event: 'transformations.cleanup.failed',
+            message: 'storage unavailable',
+          }),
+        );
+        expect(await transformationsRepo.existsBy({ id: ids.expired })).toBe(
+          true,
+        );
+        expect(await fileExists(expiredKey)).toBe(true);
+      } finally {
+        deleteSpy.mockRestore();
+        errorSpy.mockRestore();
+      }
+    });
+
     // Runs on the shared dev database, so it also deletes any other row
     // older than the retention period — which is what the job does anyway.
-    it('deletes expired rows and keeps fresh ones', async () => {
+    it('deletes expired rows with their files and keeps fresh ones', async () => {
+      const expiredKey = await attachFile(ids.expired);
+      const freshKey = await attachFile(ids.jsonToXml);
+
       await app.get(TransformationsCleanupService).run();
 
       expect(await transformationsRepo.existsBy({ id: ids.expired })).toBe(
         false,
       );
+      expect(await fileExists(expiredKey)).toBe(false);
       expect(
         await transformationsRepo.countBy({ id: In(visibleSelfIds()) }),
       ).toBe(visibleSelfIds().length);
+      expect(await fileExists(freshKey)).toBe(true);
     });
   });
 

@@ -90,7 +90,20 @@ describe('readMultipart', () => {
       source: 'json',
       fileSize: body.length,
       fields: { targetFormat: 'csv', save: 'false' },
+      originalFileName: 'data.json',
     });
+  });
+
+  it('returns originalFileName null for an empty client file name', async () => {
+    const upload = file([Buffer.from('{}')]);
+    upload.part.filename = '';
+
+    const result = await readMultipart(
+      requestWith([upload.part]),
+      fakeEngine().engine,
+    );
+
+    expect(result.originalFileName).toBeNull();
   });
 
   it('accepts a file exactly at its size limit and detects from the first 4 KiB', async () => {

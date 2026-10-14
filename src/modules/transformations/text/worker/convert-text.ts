@@ -28,8 +28,6 @@ export function convertText({
   const parser = TEXT_PARSERS.get(source);
   const serializer = TEXT_SERIALIZERS.get(target);
 
-  // The pipeline already rejects pairs outside supportedPairs(); this only
-  // guards a direct call with an unregistered format.
   if (!parser || !serializer || source === target) {
     return {
       ok: false,

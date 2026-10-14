@@ -1,14 +1,24 @@
-import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
-import type { Repository } from 'typeorm';
+import { Readable } from 'stream';
+
+import {
+  BadRequestException,
+  Logger,
+  NotFoundException,
+  StreamableFile,
+} from '@nestjs/common';
+import { MoreThanOrEqual, type Repository } from 'typeorm';
 import type { MockInstance } from 'vitest';
 
 import type { ConfigService } from '@/core/config/config.service';
 import { encodeCursor } from '@/core/database/keyset-pagination';
+import { StorageNotFoundError } from '@/core/storage/storage.errors';
+import type { StoredObject } from '@/core/storage/storage.types';
 import type { User } from '@/modules/users/entities/user.entity';
 
+import type { TransformationsStorageService } from '../../core/transformations-storage.service';
 import type { Transformation } from '../../entities/transformation.entity';
-import { TransformationHistoryQueryDto } from '../transformations-history.dto';
-import { TransformationsHistoryService } from '../transformations-history.service';
+import { TransformationHistoryQueryDto } from '../dto/transformations-history.dto';
+import { TransformationsHistoryService } from '../services/history-transformations.service';
 
 describe('TransformationsHistoryService', () => {
   const USER_ID = '11111111-1111-4111-8111-111111111111';
@@ -28,8 +38,14 @@ describe('TransformationsHistoryService', () => {
     take: vi.fn(),
     getMany: vi.fn<() => Promise<Transformation[]>>(),
   };
-  const repoMock = { createQueryBuilder: vi.fn() };
+  const repoMock = {
+    createQueryBuilder: vi.fn(),
+    findOneBy: vi.fn<() => Promise<Transformation | null>>(),
+  };
   const userRepoMock = { existsBy: vi.fn<() => Promise<boolean>>() };
+  const storageMock = {
+    downloadResult: vi.fn<(key: string) => Promise<StoredObject>>(),
+  };
   const configValues: Record<string, string> = {
     TRANSFORMATIONS_RETENTION_DAYS: '90',
   };
@@ -41,6 +57,7 @@ describe('TransformationsHistoryService', () => {
     repoMock as unknown as Repository<Transformation>,
     userRepoMock as unknown as Repository<User>,
     configServiceMock as unknown as ConfigService,
+    storageMock as unknown as TransformationsStorageService,
   );
 
   let logSpy: MockInstance<Logger['log']>;
@@ -123,6 +140,8 @@ describe('TransformationsHistoryService', () => {
         'transformation.fileSize',
         'transformation.durationMs',
         'transformation.createdAt',
+        'transformation.fileStatus',
+        'transformation.resultFileName',
       ]);
     });
 
@@ -384,12 +403,189 @@ describe('TransformationsHistoryService', () => {
       expect(items[0].targetFormat).toBeNull();
     });
 
-    it('reports fileAvailable as false', async () => {
-      qbMock.getMany.mockResolvedValue([buildTransformation()]);
+    it.each([
+      ['stored', true],
+      ['pending', false],
+      ['failed', false],
+      ['skipped', false],
+      [null, false],
+    ] as const)(
+      'reports fileAvailable for fileStatus %s as %s',
+      async (fileStatus, expected) => {
+        qbMock.getMany.mockResolvedValue([buildTransformation({ fileStatus })]);
 
-      const { items } = await list(buildQuery());
+        const { items } = await list(buildQuery());
 
-      expect(items[0].fileAvailable).toBe(false);
+        expect(items[0].fileAvailable).toBe(expected);
+      },
+    );
+  });
+
+  describe('downloadFile', () => {
+    const STORAGE_KEY = `transformations/${USER_ID}/${ID_1}.json`;
+
+    const storedEntry = (overrides: Partial<Transformation> = {}) =>
+      buildTransformation({
+        fileStatus: 'stored',
+        storageKey: STORAGE_KEY,
+        resultFileName: 'report.json',
+        resultMimeType: 'application/json',
+        ...overrides,
+      });
+
+    const storedObject = (): StoredObject => ({
+      stream: Readable.from(['{}']),
+      size: 2,
+    });
+
+    const download = (userId = USER_ID, actorUserId = userId) =>
+      service.downloadFile(ID_1, userId, actorUserId);
+
+    let warnSpy: MockInstance<Logger['warn']>;
+    let errorSpy: MockInstance<Logger['error']>;
+
+    beforeEach(() => {
+      warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+      errorSpy = vi
+        .spyOn(Logger.prototype, 'error')
+        .mockImplementation(() => {});
+      repoMock.findOneBy.mockResolvedValue(storedEntry());
+      storageMock.downloadResult.mockResolvedValue(storedObject());
+    });
+
+    it('looks the entry up by id, owner and retention period', async () => {
+      await download();
+
+      expect(repoMock.findOneBy).toHaveBeenCalledWith({
+        id: ID_1,
+        userId: USER_ID,
+        createdAt: MoreThanOrEqual(new Date(NOW.getTime() - 90 * DAY_MS)),
+      });
+    });
+
+    it('streams the stored object with its type, size and file name', async () => {
+      const file = await download();
+
+      expect(file).toBeInstanceOf(StreamableFile);
+      expect(storageMock.downloadResult).toHaveBeenCalledWith(STORAGE_KEY);
+      expect(file.getHeaders()).toEqual({
+        type: 'application/json',
+        length: 2,
+        disposition: `attachment; filename="report.json"; filename*=UTF-8''report.json`,
+      });
+    });
+
+    it('falls back to octet-stream and converted.<ext> from the storage key', async () => {
+      repoMock.findOneBy.mockResolvedValue(
+        storedEntry({ resultMimeType: null, resultFileName: null }),
+      );
+
+      const file = await download();
+
+      expect(file.getHeaders()).toMatchObject({
+        type: 'application/octet-stream',
+        disposition: expect.stringContaining(
+          'filename="converted.json"',
+        ) as string,
+      });
+    });
+
+    it("404 for a missing, someone else's or expired entry, without touching storage", async () => {
+      repoMock.findOneBy.mockResolvedValue(null);
+
+      await expect(download()).rejects.toThrow(
+        new NotFoundException('Item not found'),
+      );
+
+      expect(storageMock.downloadResult).not.toHaveBeenCalled();
+      expect(logSpy).toHaveBeenCalledWith({
+        event: 'transformation.file.download_failed',
+        transformationId: ID_1,
+        targetUserId: USER_ID,
+        actorUserId: USER_ID,
+        result: 404,
+        reason: 'item_not_found',
+        durationMs: expect.any(Number) as number,
+      });
+    });
+
+    it.each(['pending', 'failed', 'skipped', null] as const)(
+      '404 for fileStatus %s, without touching storage',
+      async (fileStatus) => {
+        repoMock.findOneBy.mockResolvedValue(storedEntry({ fileStatus }));
+
+        await expect(download()).rejects.toThrow(
+          new NotFoundException('Item not found'),
+        );
+
+        expect(storageMock.downloadResult).not.toHaveBeenCalled();
+        expect(logSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            result: 404,
+            reason: 'file_not_available',
+            fileStatus,
+          }),
+        );
+      },
+    );
+
+    it('404 for a stored entry without a storage key', async () => {
+      repoMock.findOneBy.mockResolvedValue(storedEntry({ storageKey: null }));
+
+      await expect(download()).rejects.toThrow(NotFoundException);
+
+      expect(storageMock.downloadResult).not.toHaveBeenCalled();
+    });
+
+    it('404 and an error log when the object is missing from storage', async () => {
+      storageMock.downloadResult.mockRejectedValue(
+        new StorageNotFoundError(STORAGE_KEY),
+      );
+
+      await expect(download()).rejects.toThrow(
+        new NotFoundException('Item not found'),
+      );
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'transformation.file.missing',
+          result: 404,
+          storageKey: STORAGE_KEY,
+        }),
+      );
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('rethrows other storage errors and logs them without their text', async () => {
+      const failure = new Error('secret storage details');
+      storageMock.downloadResult.mockRejectedValue(failure);
+
+      await expect(download()).rejects.toBe(failure);
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'transformation.file.download_failed',
+          result: 500,
+          reason: 'storage_error',
+        }),
+      );
+      expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(
+        'secret storage details',
+      );
+    });
+
+    it('logs a 200 download with the admin as actor', async () => {
+      await download(USER_ID, ADMIN_ID);
+
+      expect(logSpy).toHaveBeenCalledWith({
+        event: 'transformation.file.downloaded',
+        transformationId: ID_1,
+        targetUserId: USER_ID,
+        actorUserId: ADMIN_ID,
+        result: 200,
+        resultSize: 2,
+        durationMs: expect.any(Number) as number,
+      });
     });
   });
 

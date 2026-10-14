@@ -8,13 +8,13 @@ import {
   FORMATS,
   TRANSFORMATION_KINDS,
   TRANSFORMATION_STATUSES,
-} from '../core/types';
+} from '../../core/types';
 import type {
   Format,
   TransformationKind,
   TransformationStatus,
-} from '../core/types';
-import type { TransformationErrorCode } from '../core/transformation-error';
+} from '../../core/types';
+import type { TransformationErrorCode } from '../../core/transformation-error';
 
 export class TransformationHistoryQueryDto {
   @ApiPropertyOptional({
@@ -112,10 +112,19 @@ export class TransformationHistoryItemDto {
 
   @ApiProperty({
     description:
-      'Whether the result file can be downloaded. Always false for now.',
+      'Whether the result file was saved and can be downloaded (`fileStatus` is `stored`).',
   })
   @Expose()
   fileAvailable: boolean;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'File name the download is served under; null when the conversion failed.',
+  })
+  @Expose()
+  resultFileName: string | null;
 }
 
 export class TransformationHistoryResponseDto {

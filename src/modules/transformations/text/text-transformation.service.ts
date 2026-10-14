@@ -194,8 +194,6 @@ export class TextTransformationService extends ConversionEngine {
       throw new TransformationError(outcome.code, status, outcome.message);
     }
 
-    // convert() is only reached for pairs from supportedPairs(), so the
-    // target serializer is registered.
     const serializer = TEXT_SERIALIZERS.get(req.target)!;
 
     return {

@@ -1,6 +1,6 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 
-import { TransformationHistoryQueryDto } from '../transformations-history.dto';
+import { TransformationHistoryQueryDto } from '../dto/transformations-history.dto';
 
 const pipe = new ValidationPipe({
   whitelist: true,

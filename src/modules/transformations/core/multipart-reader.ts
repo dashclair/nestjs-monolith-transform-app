@@ -12,6 +12,7 @@ export interface ReadMultipartResult {
   source: Format;
   fileSize: number;
   fields: Record<string, unknown>;
+  originalFileName: string | null;
 }
 
 export async function readMultipart(
@@ -23,6 +24,7 @@ export async function readMultipart(
   const chunks: Buffer[] = [];
 
   let fileFound = false;
+  let originalFileName: string | null = null;
   let fileSize = 0;
   let source: Format | null = null;
 
@@ -70,6 +72,7 @@ export async function readMultipart(
       }
 
       fileFound = true;
+      originalFileName = part.filename || null;
 
       let head = Buffer.alloc(0);
 
@@ -215,5 +218,6 @@ export async function readMultipart(
     source,
     fileSize,
     fields,
+    originalFileName,
   };
 }

@@ -10,15 +10,21 @@ import { PiscinaRunner } from './text/runner/piscina.runner';
 import { ImageTransformationService } from './image/image-transformation.service';
 import { ImageTransformationController } from './image/image-transformation.controller';
 import { TransformationHistoryController } from './history/transformations-history.controller';
-import { TransformationsHistoryService } from './history/transformations-history.service';
+import { TransformationsHistoryService } from './history/services/history-transformations.service';
 import { AdminTransformationHistoryController } from './history/admin-transformation-history.controller';
 
 import { RbacModule } from '../rbac';
 import { User } from '../users/entities/user.entity';
-import { TransformationsCleanupService } from './history/transformations-cleanup.service';
+import { TransformationsCleanupService } from './history/services/cleanup-transformations.service';
+import { StorageModule } from '@/core/storage/storage.module';
+import { TransformationsStorageService } from './core/transformations-storage.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Transformation, User]), RbacModule],
+  imports: [
+    TypeOrmModule.forFeature([Transformation, User]),
+    RbacModule,
+    StorageModule,
+  ],
   controllers: [
     TextTransformationController,
     ImageTransformationController,
@@ -36,6 +42,7 @@ import { TransformationsCleanupService } from './history/transformations-cleanup
     ImageTransformationService,
     TransformationsHistoryService,
     TransformationsCleanupService,
+    TransformationsStorageService,
   ],
   exports: [TypeOrmModule, TransformationHistoryService],
 })

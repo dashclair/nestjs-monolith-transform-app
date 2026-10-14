@@ -108,6 +108,7 @@ export interface Config {
   STORAGE_S3_ACCESS_KEY_ID?: string;
   STORAGE_S3_SECRET_ACCESS_KEY?: string;
   STORAGE_S3_FORCE_PATH_STYLE?: boolean; // default false
+  STORAGE_MAX_FILE_BYTES?: number; // bytes, default 50 MiB; larger results are not saved
 
   TRANSFORM_TIMEOUT_MS?: number; // default 30000, milliseconds
   THROTTLE_TRANSFORM_LIMIT?: number; // default 10
@@ -134,4 +135,8 @@ export interface Config {
   THROTTLE_TRANSFORMATIONS_HISTORY_TTL?: number; // default 60, seconds
   THROTTLE_ADMIN_TRANSFORMATIONS_HISTORY_LIMIT?: number; // default 20
   THROTTLE_ADMIN_TRANSFORMATIONS_HISTORY_TTL?: number; // default 60, seconds
+  THROTTLE_TRANSFORMATIONS_DOWNLOAD_LIMIT?: number; // default 10
+  THROTTLE_TRANSFORMATIONS_DOWNLOAD_TTL?: number; // default 60, seconds
+  THROTTLE_ADMIN_TRANSFORMATIONS_DOWNLOAD_LIMIT?: number; // default 10
+  THROTTLE_ADMIN_TRANSFORMATIONS_DOWNLOAD_TTL?: number; // default 60, seconds
 }

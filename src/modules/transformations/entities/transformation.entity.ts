@@ -12,6 +12,7 @@ import type { ValueTransformer } from 'typeorm';
 import { User } from '@/modules/users/entities/user.entity';
 import type {
   ConversionOptions,
+  FileStatus,
   Format,
   TransformationKind,
   TransformationStatus,
@@ -69,4 +70,19 @@ export class Transformation {
 
   @CreateDateColumn({ type: 'timestamptz', precision: 3 })
   createdAt: Date;
+
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  storageKey: string | null;
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  fileStatus: FileStatus | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  resultFileName: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  resultMimeType: string | null;
+
+  @Column('bigint', { nullable: true, transformer: bigintToNumber })
+  resultSize: number | null;
 }

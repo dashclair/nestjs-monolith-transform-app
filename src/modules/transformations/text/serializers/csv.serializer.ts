@@ -51,8 +51,6 @@ const flatten = (
   return out;
 };
 
-// OWASP CSV injection: a cell starting with = + - @ \t \r is run as a formula
-// by spreadsheets — prefix it with ' unless it is just a number like -5.
 const toCell = (value: Primitive | undefined): string => {
   if (value === null || value === undefined) return '';
   if (typeof value !== 'string') return String(value);

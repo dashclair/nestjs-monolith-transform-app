@@ -1,14 +1,18 @@
+import { extname } from 'path';
+
 import {
   BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
+  StreamableFile,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { isUUID } from 'class-validator';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import { MoreThanOrEqual, Repository, SelectQueryBuilder } from 'typeorm';
 
+import { attachmentDisposition } from '@/common/http/content-disposition';
 import { ConfigService } from '@/core/config/config.service';
 import {
   applyKeysetCursor,
@@ -21,14 +25,17 @@ import {
   SortDirection,
 } from '@/core/database/keyset-pagination';
 
-import { Transformation } from '../entities/transformation.entity';
+import { Transformation } from '../../entities/transformation.entity';
 import {
   TransformationHistoryItemDto,
   TransformationHistoryQueryDto,
   TransformationHistoryResponseDto,
-} from './transformations-history.dto';
-import { retentionCutoff } from './retention.utils';
+} from '../dto/transformations-history.dto';
+import { retentionCutoff } from '../utils/retention.utils';
 import { User } from '@/modules/users/entities/user.entity';
+import { TransformationsStorageService } from '../../core/transformations-storage.service';
+import { StorageNotFoundError } from '@/core/storage/storage.errors';
+import { StoredObject } from '@/core/storage/storage.types';
 
 const SORT_COLUMN = 'transformation.createdAt';
 const ID_COLUMN = 'transformation.id';
@@ -43,6 +50,7 @@ export class TransformationsHistoryService {
     private readonly repo: Repository<Transformation>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     private readonly configService: ConfigService,
+    private readonly storageService: TransformationsStorageService,
   ) {}
 
   async getTransformationHistory(
@@ -66,6 +74,8 @@ export class TransformationsHistoryService {
         'transformation.fileSize',
         'transformation.durationMs',
         'transformation.createdAt',
+        'transformation.fileStatus',
+        'transformation.resultFileName',
       ])
       .where('transformation.userId = :userId', { userId })
       .andWhere('transformation.createdAt >= :retentionCutoff', {
@@ -119,6 +129,125 @@ export class TransformationsHistoryService {
     }
 
     return this.getTransformationHistory(query, userId, actorUserId);
+  }
+
+  async downloadFile(
+    itemId: string,
+    userId: string,
+    actorUserId: string,
+  ): Promise<StreamableFile> {
+    const startedAt = performance.now();
+    const describe = (fields: Record<string, unknown>) => ({
+      ...this.describeDownload(itemId, userId, actorUserId),
+      ...fields,
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+
+    const transformation = await this.repo.findOneBy({
+      id: itemId,
+      userId,
+      createdAt: MoreThanOrEqual(
+        retentionCutoff(
+          Number(this.configService.get('TRANSFORMATIONS_RETENTION_DAYS')),
+        ),
+      ),
+    });
+
+    if (!transformation) {
+      this.logger.log(
+        describe({
+          event: 'transformation.file.download_failed',
+          result: 404,
+          reason: 'item_not_found',
+        }),
+      );
+      throw new NotFoundException('Item not found');
+    }
+
+    const { storageKey } = transformation;
+
+    if (transformation.fileStatus !== 'stored' || !storageKey) {
+      this.logger.log(
+        describe({
+          event: 'transformation.file.download_failed',
+          result: 404,
+          reason: 'file_not_available',
+          fileStatus: transformation.fileStatus,
+        }),
+      );
+      throw new NotFoundException('Item not found');
+    }
+
+    let stored: StoredObject;
+
+    try {
+      stored = await this.storageService.downloadResult(storageKey);
+    } catch (error) {
+      if (error instanceof StorageNotFoundError) {
+        this.logger.error(
+          describe({
+            event: 'transformation.file.missing',
+            result: 404,
+            storageKey,
+          }),
+        );
+        throw new NotFoundException('Item not found');
+      }
+
+      this.logger.error(
+        describe({
+          event: 'transformation.file.download_failed',
+          result: 500,
+          reason: 'storage_error',
+          storageKey,
+        }),
+      );
+      throw error;
+    }
+
+    this.logger.log(
+      describe({
+        event: 'transformation.file.downloaded',
+        result: 200,
+        resultSize: stored.size,
+      }),
+    );
+
+    return new StreamableFile(stored.stream, {
+      type: transformation.resultMimeType ?? 'application/octet-stream',
+      length: stored.size,
+      disposition: attachmentDisposition(
+        transformation.resultFileName ?? `converted${extname(storageKey)}`,
+      ),
+    });
+  }
+
+  async downloadFileByAdmin(
+    itemId: string,
+    userId: string,
+    actorUserId: string,
+  ): Promise<StreamableFile> {
+    const existUser = await this.userRepo.findOne({ where: { id: userId } });
+
+    if (!existUser) {
+      this.logger.log({
+        ...this.describeDownload(itemId, userId, actorUserId),
+        event: 'transformation.file.download_failed',
+        result: 404,
+        reason: 'user_not_found',
+      });
+      throw new NotFoundException('User not found');
+    }
+
+    return this.downloadFile(itemId, userId, actorUserId);
+  }
+
+  private describeDownload(
+    transformationId: string,
+    targetUserId: string,
+    actorUserId: string,
+  ) {
+    return { transformationId, targetUserId, actorUserId };
   }
 
   private describeRequest(
@@ -205,8 +334,9 @@ export class TransformationsHistoryService {
       TransformationHistoryItemDto,
       {
         ...transformation,
+        resultFileName: transformation.resultFileName,
         errorCode: transformation.errorCode ?? undefined,
-        fileAvailable: false,
+        fileAvailable: transformation.fileStatus === 'stored' ? true : false,
       },
       { excludeExtraneousValues: true, exposeUnsetFields: false },
     );
